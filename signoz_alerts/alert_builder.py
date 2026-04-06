@@ -10,6 +10,7 @@ from config import (
     DEFAULT_P50_THRESHOLD_MS,
     DEFAULT_P99_THRESHOLD_MS,
     DEFAULT_PREFERRED_CHANNEL,
+    SIGNOZ_POD_LABEL,
     ERROR_RATE_THRESHOLD_INCREASE_PERCENT,
     LATENCY_THRESHOLD_INCREASE_PERCENT,
     SIGNOZ_BASE_URL,
@@ -82,7 +83,11 @@ def compute_error_rate_threshold(raw_value: object) -> float:
     if parsed is None or parsed <= 0:
         return cap
     bumped = _apply_percentage_increase(parsed, ERROR_RATE_THRESHOLD_INCREASE_PERCENT)
-    return min(bumped, cap)
+    # If the configured increase would reduce the threshold below the parsed value,
+    # fall back to the default to avoid unexpected lowering.
+    if bumped < cap:
+        return cap
+    return bumped
 
 
 def _base_context(alert_obj: Dict) -> Dict:
@@ -94,6 +99,7 @@ def _base_context(alert_obj: Dict) -> Dict:
         "route_name": route_name,
         "route_slug": sanitize_name(route_name),
         "SIGNOZ_PREFERRED_CHANNEL": DEFAULT_PREFERRED_CHANNEL,
+        "SIGNOZ_POD_LABEL": SIGNOZ_POD_LABEL,
         "SIGNOZ_BASE_URL": SIGNOZ_BASE_URL,
     }
 
@@ -129,6 +135,7 @@ def _build_resource_payload(service_name: str, resource_metric: str) -> Dict:
         "metric_key": resource_metric,
         "threshold": threshold,
         "SIGNOZ_PREFERRED_CHANNEL": DEFAULT_PREFERRED_CHANNEL,
+        "SIGNOZ_POD_LABEL": SIGNOZ_POD_LABEL,
         "SIGNOZ_BASE_URL": SIGNOZ_BASE_URL,
     }
     return recursive_format(template, context)

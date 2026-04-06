@@ -15,6 +15,7 @@ REQUEST_TIMEOUT_SECONDS = int(os.getenv("SIGNOZ_REQUEST_TIMEOUT_SECONDS", "15"))
 MAX_RETRIES = int(os.getenv("SIGNOZ_MAX_RETRIES", "2"))
 RETRY_BACKOFF_SECONDS = float(os.getenv("SIGNOZ_RETRY_BACKOFF_SECONDS", "1.5"))
 DEFAULT_PREFERRED_CHANNEL = os.getenv("SIGNOZ_PREFERRED_CHANNEL", "")
+SIGNOZ_POD_LABEL = os.getenv("SIGNOZ_POD_LABEL", "wallet")
 
 DEFAULT_P99_THRESHOLD_MS = float(os.getenv("SIGNOZ_P99_THRESHOLD_MS", "250"))
 DEFAULT_P50_THRESHOLD_MS = float(os.getenv("SIGNOZ_P50_THRESHOLD_MS", "120"))
@@ -85,7 +86,7 @@ ALERT_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 ],
             },
         },
-        "labels": {"pod": "wallet", "service": "{service_name}"},
+        "labels": {"pod": "{SIGNOZ_POD_LABEL}", "service": "{service_name}"},
         "annotations": {
             "description": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
             "summary": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
@@ -181,7 +182,7 @@ ALERT_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 ],
             },
         },
-        "labels": {"pod": "wallet", "service": "{service_name}"},
+        "labels": {"pod": "{SIGNOZ_POD_LABEL}", "service": "{service_name}"},
         "annotations": {
             "description": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
             "summary": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
@@ -244,7 +245,7 @@ ALERT_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 ],
             },
         },
-        "labels": {"pod": "wallet", "service": "{service_name}"},
+        "labels": {"pod": "{SIGNOZ_POD_LABEL}", "service": "{service_name}"},
         "annotations": {
             "description": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
             "summary": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
@@ -307,7 +308,7 @@ ALERT_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 ],
             },
         },
-        "labels": {"pod": "wallet", "service": "{service_name}"},
+        "labels": {"pod": "{SIGNOZ_POD_LABEL}", "service": "{service_name}"},
         "annotations": {
             "description": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
             "summary": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
