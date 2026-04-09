@@ -1,12 +1,20 @@
 import logging
 import os
+import sys
+from pathlib import Path
 from typing import Set
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from app_logging import init_logging
 
 from alert_builder import build_alert_requests
 from api_client import create_alert, fetch_existing_alert_names, skip_alert
 from config import CSV_PATH
 from csv_loader import load_alerts
-from utils import payload_fingerprint, setup_logging
+from utils import payload_fingerprint
 
 
 logger = logging.getLogger(__name__)
@@ -17,7 +25,7 @@ def _resolve_csv_path() -> str:
 
 
 def main() -> None:
-    setup_logging()
+    init_logging(default_filename="app.log")
     csv_path = _resolve_csv_path()
     logger.info("Starting SigNoz alert creation from csv=%s", csv_path)
 

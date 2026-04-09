@@ -5,8 +5,8 @@ from pathlib import Path
 
 import requests
 
-from scraping_foundation.http_client import REQUEST_HEADERS
-from scraping_foundation.images import (
+from scrape_web.site_1.http_client import REQUEST_HEADERS
+from scrape_web.site_1.images import (
     PRODUCT_IMAGE_QUERY_WIDTH,
     THUMBNAIL_QUERY_WIDTH,
     THUMBNAIL_SUBDIR,

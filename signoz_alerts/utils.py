@@ -3,29 +3,15 @@ import json
 import logging
 import os
 import re
+import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 logger = logging.getLogger(__name__)
-
-
-def setup_logging() -> None:
-    log_file = os.getenv("SIGNOZ_LOG_FILE", "signoz_alerts.log")
-    if not os.path.isabs(log_file):
-        log_file = os.path.join(os.getcwd(), log_file)
-
-    log_dir = os.path.dirname(log_file)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    root_logger.handlers.clear()
-    file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
-    )
-    root_logger.addHandler(file_handler)
 
 
 def load_env_file(env_file: str = ".env") -> None:

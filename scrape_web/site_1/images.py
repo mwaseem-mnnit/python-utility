@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
-from scraping_foundation.config import default_images_dir
+from scrape_web.site_1.config import default_images_dir
 
 # Shopify CDN image sizing (see ``context/authority.md``)
 THUMBNAIL_QUERY_WIDTH = 420

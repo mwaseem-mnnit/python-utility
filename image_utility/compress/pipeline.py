@@ -15,12 +15,14 @@ from dotenv import load_dotenv
 from PIL import Image, ImageOps, UnidentifiedImageError
 from io import BytesIO
 
-LOGGER_NAME = "image_utility.compress"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from app_logging import init_logging
+
 ENV_INPUT_DIR = "IMAGE_UTIL_INPUT_DIR"
-ENV_LOG_DIR = "IMAGE_UTIL_LOG_DIR"
 ENV_MAX_FILES = "IMAGE_UTIL_MAX_FILES"
-DEFAULT_LOG_DIR = "log"
-LOG_FILENAME = "compress.log"
 _COMPRESS_DIR = Path(__file__).resolve().parent
 
 HOME_W, HOME_H = 300, 240
@@ -113,27 +115,16 @@ def _resize_info(im: Image.Image) -> Image.Image:
     return im.resize((nw, nh), Image.Resampling.LANCZOS)
 
 
-def setup_logging() -> logging.Logger:
-    """Log to console and to ``<log_dir>/compress.log`` (``IMAGE_UTIL_LOG_DIR``)."""
-    raw = os.getenv(ENV_LOG_DIR, DEFAULT_LOG_DIR).strip()
-    log_dir = Path(raw).expanduser()
-    if not log_dir.is_absolute():
-        log_dir = Path.cwd() / log_dir
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / LOG_FILENAME
+def convert_jpg_to_webp(input_path, output_path, width, height):
+    # Open the JPG image
+    with Image.open(input_path) as img:
+        # Resize the image to specified (width, height)
+        # Resampling.LANCZOS provides high-quality results
+        resized_img = img.resize((width, height), Image.Resampling.LANCZOS)
 
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-    sh = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(fmt)
-    logger.addHandler(sh)
-    logger.info("Logging to %s", log_file)
-    return logger
+        # Save as WebP with optional quality setting (0-100)
+        resized_img.save(output_path, "webp", quality=100)
+        print(f"Success: {output_path} created at {width}x{height}")
 
 
 def _output_dirs(input_dir: Path) -> tuple[Path, Path]:
@@ -154,7 +145,7 @@ def process_folder(
     Process all JPEGs in input_dir. Returns (ok_count, skipped_count).
     Stops after ``max_files`` successful compressions when set.
     """
-    log = logger or logging.getLogger(LOGGER_NAME)
+    log = logger or logging.getLogger(__name__)
     input_dir = input_dir.resolve()
     if not input_dir.is_dir():
         raise NotADirectoryError(f"Not a directory: {input_dir}")
@@ -220,7 +211,8 @@ def process_folder(
 
 def main() -> int:
     load_dotenv(_COMPRESS_DIR / ".env")
-    logger = setup_logging()
+    init_logging(also_stdout=True, default_filename="app.log")
+    logger = logging.getLogger(__name__)
 
     env_path = os.getenv(ENV_INPUT_DIR, "").strip()
     if not env_path:
@@ -231,11 +223,8 @@ def main() -> int:
     try:
         ok, skipped = process_folder(folder, logger=logger, max_files=max_files)
     except NotADirectoryError as e:
-        logger = logging.getLogger(LOGGER_NAME)
         logger.error("%s", e)
         return 1
 
-    logging.getLogger(LOGGER_NAME).info(
-        "Done. %s image(s) written, %s skipped.", ok, skipped
-    )
+    logger.info("Done. %s image(s) written, %s skipped.", ok, skipped)
     return 0

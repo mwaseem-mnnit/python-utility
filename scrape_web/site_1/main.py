@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
+from pathlib import Path
 
-from scraping_foundation.config import get_scrape_data_dir
-from scraping_foundation.worker import scrape_products
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from app_logging import init_logging
+
+from scrape_web.site_1.config import get_scrape_data_dir
+from scrape_web.site_1.worker import scrape_products
+
+logger = logging.getLogger(__name__)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -23,21 +33,22 @@ def _env_optional_int(name: str) -> int | None:
 
 def main() -> int:
     """
-    CLI entry point: ``.env`` is loaded via ``scraping_foundation.config`` (on import).
+    CLI entry point: ``.env`` is loaded via ``scrape_web.site_1.config`` (on import).
     Reads ``SCRAPE_BASE_URL`` and optional ``SCRAPE_START_PAGE``, ``SCRAPE_END_PAGE``, ``SCRAPE_LIMIT``.
     """
+    init_logging(default_filename="app.log")
+
     base_url = os.environ.get("SCRAPE_BASE_URL", "").strip()
     if not base_url:
-        print(
-            "Missing SCRAPE_BASE_URL. Set it in scraping_foundation/.env (or the environment).",
-            file=sys.stderr,
+        logger.error(
+            "Missing SCRAPE_BASE_URL. Set it in scrape_web/site_1/.env (or the environment)."
         )
         return 1
 
     try:
         get_scrape_data_dir()
     except ValueError as e:
-        print(str(e), file=sys.stderr)
+        logger.error("%s", e)
         return 1
 
     start_page = _env_int("SCRAPE_START_PAGE", 1)

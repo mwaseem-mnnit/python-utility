@@ -16,7 +16,7 @@ def get_scrape_data_dir() -> Path:
     raw = os.environ.get("SCRAPE_DATA_DIR", "").strip()
     if not raw:
         raise ValueError(
-            "SCRAPE_DATA_DIR is not set. Add it to scraping_foundation/.env "
+            "SCRAPE_DATA_DIR is not set. Add it to scrape_web/site_1/.env "
             "(absolute path to the folder that will hold products.csv and images/)."
         )
     return Path(raw).expanduser().resolve()

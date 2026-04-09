@@ -4,9 +4,9 @@ import csv
 from collections.abc import Iterable
 from pathlib import Path
 
-from scraping_foundation.config import default_csv_path
-from scraping_foundation.images import format_image_paths_for_csv
-from scraping_foundation.models import ProductRow
+from scrape_web.site_1.config import default_csv_path
+from scrape_web.site_1.images import format_image_paths_for_csv
+from scrape_web.site_1.models import ProductRow
 
 _BASE_FIELDS = ("product_id", "product_slug", "title", "image_paths")
 
