@@ -6,6 +6,42 @@ from bs4 import BeautifulSoup
 
 from scrape_web.site_2.product_models import ProductRowDetail
 
+_MEDIA_TAGS = frozenset(
+    {"iframe", "object", "embed", "video", "audio", "source", "picture", "svg", "canvas"}
+)
+
+
+def _sanitize_feature_html_fragment(html_fragment: str) -> str:
+    """
+    Strip links and media from a small HTML fragment (typically one ``<p>``).
+
+    - Unwrap ``<a>`` (keep visible text only).
+    - Remove ``<img>`` and common embedded/media tags.
+    - Clear all attributes on remaining tags (removes ``href``, ``src``, etc.).
+    """
+    text = html_fragment.strip()
+    if not text:
+        return ""
+
+    frag = BeautifulSoup(text, "html.parser")
+    root = frag.find()
+    if not root:
+        return ""
+
+    for a in root.find_all("a"):
+        a.unwrap()
+
+    for img in root.find_all("img"):
+        img.decompose()
+
+    for tag in root.find_all(_MEDIA_TAGS):
+        tag.decompose()
+
+    for tag in root.find_all(True):
+        tag.attrs = {}
+
+    return str(root)
+
 
 def extract_brand(soup: BeautifulSoup) -> str:
     """Value associated with ``<span>Brand</span>`` (next text/sibling)."""
@@ -52,6 +88,10 @@ def extract_features_html(soup: BeautifulSoup) -> str:
     """
     ``<p>`` tags after ``div.alcet_title`` and before the warranty span,
     excluding paragraphs inside ``div.nei-table``.
+
+    Each paragraph is sanitized: ``<a>`` unwrapped, ``<img>`` / media removed,
+    attributes stripped so no URLs or embeds remain—only text-bearing markup
+    like ``<p>``, ``<strong>``, etc.
     """
     alcet = soup.find("div", class_="alcet_title")
     warranty = soup.find("span", string=re.compile(r"Warranty Procedures", re.I))
@@ -70,7 +110,9 @@ def extract_features_html(soup: BeautifulSoup) -> str:
             continue
         if el.find_parent("div", class_="nei-table"):
             continue
-        parts.append(str(el))
+        cleaned = _sanitize_feature_html_fragment(str(el))
+        if cleaned:
+            parts.append(cleaned)
     return "".join(parts)
 
 

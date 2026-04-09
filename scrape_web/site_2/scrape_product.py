@@ -8,6 +8,7 @@ import scrape_web.site_2.config  # noqa: F401 — env + logging
 from scrape_web.site_2.common import product_details_csv_path
 from scrape_web.site_2.html_fetch import fetch_and_parse_html
 from scrape_web.site_2.product_extractors import build_product_row_detail
+from scrape_web.site_2.product_images import extract_product_images
 from scrape_web.site_2.product_models import ProductRowDetail
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def scrape_one_product_row(row: dict[str, str]) -> ProductRowDetail:
         raise ValueError("CSV row missing link")
 
     page = fetch_and_parse_html(link)
+    extract_product_images(page, row)
     return build_product_row_detail(
         identifier=identifier,
         slug=slug,
