@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import asdict
+from datetime import datetime
 import logging
 import os
+from pathlib import Path
 
 import scrape_web.site_2.config  # noqa: F401 — env + logging
-from scrape_web.site_2.common import product_details_csv_path
+from scrape_web.site_2.common import product_details_csv_path, site2_home_dir
 from scrape_web.site_2.html_fetch import fetch_and_parse_html
 from scrape_web.site_2.product_extractors import build_product_row_detail
 from scrape_web.site_2.product_images import extract_product_images
@@ -53,7 +56,7 @@ def scrape_one_product_row(row: dict[str, str]) -> ProductRowDetail:
     )
 
 
-def scrape_product() -> int:
+def scrape_product() -> list[ProductRowDetail]:
     rows = load_product_detail_rows()
     max_iter = _max_iteration()
     extracted: list[ProductRowDetail] = []
@@ -70,5 +73,62 @@ def scrape_product() -> int:
         detail = scrape_one_product_row(row)
         extracted.append(detail)
 
+    logger.info("Extracted product detail rows=%s", len(extracted))
+    return extracted
+
+
+def dump_product(extracted: list[ProductRowDetail]) -> Path:
+    """
+    Dump extracted products to:
+    ``<SCRAPE_SITE2_HOME>/ns_product_<dd-mm-yyyy>.csv``.
+    """
+    home = site2_home_dir()
+    home.mkdir(parents=True, exist_ok=True)
+    date_str = datetime.now().strftime("%d-%m-%Y")
+    out_path = home / f"ns_product_{date_str}.csv"
+
+    fieldnames = [
+        "handleId",
+        # "slug",
+        # "link",
+        "brand",
+        "name",
+        "description",
+        "additionalInfoTitle1",
+        "additionalInfoDescription1",
+        "additionalInfoTitle2",
+        "additionalInfoDescription2",
+        "fieldType",
+        "sku",
+        "price",
+        "visible",
+        "inventory",
+    ]
+
+    with out_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in extracted:
+            data = asdict(item)
+            row = {
+                # "identifier": data["identifier"],
+                "handleId": data["identifier"],
+                # "link": data["link"],
+                "brand": data["brand"],
+                "name": data["title"],
+                "description": data["description"],
+                "additionalInfoTitle1": data["additionalInfoTitle1"],
+                "additionalInfoDescription1": data["additionalInfoDescription1"],
+                "additionalInfoTitle2": data["additionalInfoTitle2"],
+                "additionalInfoDescription2": data["additionalInfoDescription2"],
+                "fieldType": "Product",
+                "sku": "100",
+                "price": "1000",
+                "visible": "FALSE",
+                "inventory": "InStock",
+            }
+            writer.writerow(row)
+
+    logger.info("Dumped extracted product rows=%s to %s", len(extracted), out_path)
     print(len(extracted))
-    return 0
+    return out_path
