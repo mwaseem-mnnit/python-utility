@@ -84,17 +84,50 @@ def extract_nei_table_html(soup: BeautifulSoup) -> str:
     return str(div) if div else ""
 
 
+def _is_warranty_procedures_heading_paragraph(p) -> bool:
+    """
+    Exclude blocks like ``<p><strong><span>Warranty Procedures:</span></strong></p>``
+    (heading only, no body text).
+    """
+    text = re.sub(r"\s+", " ", p.get_text(strip=True))
+    if not text:
+        return False
+    return bool(re.fullmatch(r"Warranty\s+Procedures\s*:?", text, re.IGNORECASE))
+
+
+def _find_warranty_boundary_span(soup: BeautifulSoup):
+    """
+    First ``span`` that mentions Warranty Procedures but is **not** inside a
+    heading-only ``<p>`` (so we do not stop at the decorative heading line).
+    """
+    for span in soup.find_all("span", string=re.compile(r"Warranty\s+Procedures", re.I)):
+        p = span.find_parent("p")
+        if p and _is_warranty_procedures_heading_paragraph(p):
+            continue
+        return span
+    return None
+
+
 def extract_features_html(soup: BeautifulSoup) -> str:
     """
     ``<p>`` tags after ``div.alcet_title`` and before the warranty span,
     excluding paragraphs inside ``div.nei-table``.
+
+    Paragraphs that are only the heading
+    ``<p><strong><span>Warranty Procedures:</span></strong></p>`` are skipped.
+
+    The stop boundary is the first ``span`` matching Warranty Procedures that is
+    not inside such a heading-only ``<p>``; the ``<p>`` that contains that
+    span is not included.
 
     Each paragraph is sanitized: ``<a>`` unwrapped, ``<img>`` / media removed,
     attributes stripped so no URLs or embeds remain—only text-bearing markup
     like ``<p>``, ``<strong>``, etc.
     """
     alcet = soup.find("div", class_="alcet_title")
-    warranty = soup.find("span", string=re.compile(r"Warranty Procedures", re.I))
+    warranty = _find_warranty_boundary_span(soup)
+    if not warranty:
+        warranty = soup.find("span", string=re.compile(r"Warranty Procedures", re.I))
     if not warranty:
         warranty = soup.find("span", string=lambda t: t and "Warranty Procedures" in t)
     if not alcet or not warranty:
@@ -110,6 +143,10 @@ def extract_features_html(soup: BeautifulSoup) -> str:
             continue
         if el.find_parent("div", class_="nei-table"):
             continue
+        if _is_warranty_procedures_heading_paragraph(el):
+            continue
+        if warranty in el.descendants:
+            break
         cleaned = _sanitize_feature_html_fragment(str(el))
         if cleaned:
             parts.append(cleaned)
@@ -130,7 +167,7 @@ def build_product_row_detail(
         brand=extract_brand(soup),
         title=extract_alcet_title(soup),
         description=extract_description_before_share(soup),
-        additionalInfoTitle1="Product Description",
+        additionalInfoTitle1="Product Specification",
         additionalInfoDescription1=extract_nei_table_html(soup),
         additionalInfoTitle2="Features",
         additionalInfoDescription2=extract_features_html(soup),
