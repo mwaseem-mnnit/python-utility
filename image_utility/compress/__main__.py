@@ -15,10 +15,10 @@ def _main() -> int:
         root = Path(__file__).resolve().parents[2]
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
-        from image_utility.compress.pipeline import main as run
+        from image_utility.compress.convert_to_webp import main as run
 
         return run()
-    from .pipeline import main as run
+    from .convert_to_webp import main as run
 
     return run()
 
