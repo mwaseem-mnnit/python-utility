@@ -9,7 +9,7 @@ from scrape_web.site_2.scrape_product import dump_product, scrape_product
 logger = logging.getLogger(__name__)
 
 
-def main() -> int:
+def scrape_and_dump_products() -> int:
     try:
         extracted = scrape_product()
         dump_product(extracted)
@@ -18,6 +18,10 @@ def main() -> int:
         logger.exception("site_2 scrape_product failed: %s", e)
         print(f"FAILED: {e}", file=sys.stderr)
         return 1
+
+
+def main() -> int:
+    return scrape_and_dump_products()
 
 
 if __name__ == "__main__":

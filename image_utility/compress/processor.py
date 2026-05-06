@@ -1,27 +1,27 @@
-"""Batch convert JPEG images from an input folder to WebP files."""
+"""WebP conversion processor."""
 
 from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from PIL import Image
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from app_logging import init_logging
-from image_utility.compress.jpg_webp import convert_to_webp
+from image_utility.utils import (
+    init_job_logging,
+    load_job_env,
+    parse_positive_int_env,
+    resolve_dir_from_env,
+    sorted_image_files,
+)
 
 ENV_INPUT_DIR = "IMAGE_UTIL_INPUT_DIR"
 ENV_OUTPUT_DIR = "IMAGE_UTIL_OUTPUT_DIR"
-_COMPRESS_DIR = Path(__file__).resolve().parent
-JPEG_EXTS = {".jpg", ".jpeg", ".png"}
+ENV_MAX_FILES = "IMAGE_UTIL_MAX_FILES"
 WEBP_SIZE = 950
 THUMBNAIL_SIZE = 420
+_MODULE_DIR = Path(__file__).resolve().parent
 
 
 def _stem_trailing_index(stem: str) -> int | None:
@@ -34,11 +34,16 @@ def _stem_trailing_index(stem: str) -> int | None:
     return int(tail, 10)
 
 
-def _resolve_dir_from_env(var_name: str) -> Path | None:
-    raw = os.getenv(var_name, "").strip()
-    if not raw:
-        return None
-    return Path(raw).expanduser().resolve()
+def convert_to_webp(
+    input_path: str | Path,
+    output_path: str | Path,
+    width: int,
+    height: int,
+) -> None:
+    """Resize an image to ``(width, height)`` and save as WebP."""
+    with Image.open(input_path) as img:
+        resized_img = img.resize((width, height), Image.Resampling.LANCZOS)
+        resized_img.save(output_path, "webp", quality=100)
 
 
 def compute_product_info_images(
@@ -47,18 +52,13 @@ def compute_product_info_images(
     *,
     is_thumbnail: bool = False,
     logger: logging.Logger | None = None,
+    max_files: int | None = None,
 ) -> tuple[int, int]:
     """
     Convert JPG/JPEG/PNG files in ``input_dir`` to WebP under ``output_dir``.
 
-    When ``is_thumbnail`` is False, every JPEG is resized to ``WEBP_SIZE`` and
-    written next to ``output_dir``.
-
-    When ``is_thumbnail`` is True, only files whose stem matches
-    ``<identifier>_0`` (index ``0`` after the last underscore) are converted,
-    resized to ``THUMBNAIL_SIZE``, and written under ``output_dir/thumbnail``.
-
-    Returns ``(ok_count, skipped_count)``.
+    When ``is_thumbnail`` is True, only files whose stem matches ``<identifier>_0``
+    are converted into ``output_dir/thumbnail``.
     """
     log = logger or logging.getLogger(__name__)
     input_dir = input_dir.resolve()
@@ -76,28 +76,19 @@ def compute_product_info_images(
     if is_thumbnail:
         log.info("Thumbnail mode: index 0 only, size %s", THUMBNAIL_SIZE)
 
-    files = sorted(
-        path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() in JPEG_EXTS
-    )
+    files = sorted_image_files(input_dir)
     if is_thumbnail:
         files = [p for p in files if _stem_trailing_index(p.stem) == 0]
 
     ok, skipped = 0, 0
-    max_iteration = int(os.getenv("IMAGE_UTIL_MAX_FILES", 1))
-
     for source_path in files:
-        if (ok + skipped) >= max_iteration:
-            log.info("breaking loop on max iteration: %s", max_iteration)
+        if max_files is not None and (ok + skipped) >= max_files:
+            log.info("Reached %s=%s, stopping.", ENV_MAX_FILES, max_files)
             break
 
         destination_path = dest_root / f"{source_path.stem}.webp"
         try:
-            convert_to_webp(
-                source_path,
-                destination_path,
-                size,
-                size,
-            )
+            convert_to_webp(source_path, destination_path, size, size)
             ok += 1
             log.info("Converted %s -> %s", source_path.name, destination_path.name)
         except OSError as exc:
@@ -107,13 +98,15 @@ def compute_product_info_images(
     return ok, skipped
 
 
-def main() -> int:
-    load_dotenv(_COMPRESS_DIR / ".env")
-    init_logging(also_stdout=True, default_filename="app.log")
+def run() -> int:
+    """Run the WebP conversion job from ``compress/.env``."""
+    load_job_env(_MODULE_DIR)
+    init_job_logging(default_filename="compress.log")
     logger = logging.getLogger(__name__)
 
-    input_dir = _resolve_dir_from_env(ENV_INPUT_DIR)
-    output_dir = _resolve_dir_from_env(ENV_OUTPUT_DIR)
+    input_dir = resolve_dir_from_env(ENV_INPUT_DIR)
+    output_dir = resolve_dir_from_env(ENV_OUTPUT_DIR)
+    max_files = parse_positive_int_env(ENV_MAX_FILES)
 
     if input_dir is None:
         logger.error("%s is not set in .env.", ENV_INPUT_DIR)
@@ -123,10 +116,18 @@ def main() -> int:
         return 1
 
     try:
-        ok, skipped = compute_product_info_images(input_dir, output_dir, logger=logger, is_thumbnail=False)
+        ok, skipped = compute_product_info_images(
+            input_dir,
+            output_dir,
+            logger=logger,
+            max_files=max_files,
+            is_thumbnail=os.getenv("IMAGE_UTIL_THUMBNAIL", "").strip() == "1",
+        )
     except NotADirectoryError as exc:
         logger.error("%s", exc)
         return 1
 
     logger.info("Done. %s image(s) converted, %s skipped.", ok, skipped)
     return 0
+
+

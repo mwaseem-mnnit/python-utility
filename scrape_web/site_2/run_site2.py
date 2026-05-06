@@ -92,7 +92,7 @@ def write_product_details_csv(
     return csv_path
 
 
-def run_site2_scrape() -> int:
+def collect_all_product_page_links() -> int:
     start_url = read_required_env("SCRAPE_SITE2_URL")
     home = site2_home_dir()
     identifier_start = int(read_required_env("SCRAPE_SITE2_IDENTIFIER_START"))
@@ -110,3 +110,11 @@ def run_site2_scrape() -> int:
     )
     logger.info(msg)
     return 0
+
+
+def run_site2_scrape() -> int:
+    """
+    Backward-compatible alias for older imports.
+    Prefer :func:`collect_all_product_page_links`.
+    """
+    return collect_all_product_page_links()
