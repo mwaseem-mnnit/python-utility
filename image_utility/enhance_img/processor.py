@@ -19,16 +19,15 @@ from rembg import new_session, remove
 
 from image_utility.utils import (
     init_job_logging,
-    load_job_env,
+    load_image_utility_env,
     parse_positive_int_env,
     resolve_dir_from_env,
     sorted_image_files,
 )
 
-ENV_INPUT_DIR = "INPUT_IMAGE_DIR"
-ENV_OUTPUT_DIR = "OUTPUT_IMAGE_DIR"
-ENV_MAX_FILES = "MAX_FILES"
-_MODULE_DIR = Path(__file__).resolve().parent
+ENV_INPUT_DIR = "IMAGE_UTIL_ENHANCE_INPUT_DIR"
+ENV_OUTPUT_DIR = "IMAGE_UTIL_ENHANCE_OUTPUT_DIR"
+ENV_MAX_FILES = "IMAGE_UTIL_ENHANCE_MAX_FILES"
 
 CANVAS_WIDTH = 2000
 CANVAS_HEIGHT = 1300
@@ -152,9 +151,9 @@ def process_single_image(input_path: Path, output_path: Path) -> bool:
 
 
 def run() -> int:
-    """Run the image enhancement job from ``enhance_img/.env``."""
-    load_job_env(_MODULE_DIR)
-    init_job_logging(default_filename="enhance_img.log")
+    """Run the image enhancement job using ``image_utility/.env``."""
+    load_image_utility_env()
+    init_job_logging("enhance_img.log")
     logger = logging.getLogger(__name__)
 
     input_dir = resolve_dir_from_env(ENV_INPUT_DIR)

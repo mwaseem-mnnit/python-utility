@@ -21,6 +21,9 @@ def _registry() -> dict[str, JobRunner]:
 
 
 def run_job(job: str) -> int:
+    from image_utility.utils import load_image_utility_env
+
+    load_image_utility_env()
     key = job.strip().lower()
     jobs = _registry()
     runner = jobs.get(key)

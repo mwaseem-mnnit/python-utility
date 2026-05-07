@@ -11,17 +11,30 @@ from dotenv import load_dotenv
 
 from app_logging import init_logging
 
+from .config import DEFAULT_LOG_DIR, ENV_LOG_DIR, PACKAGE_DIR
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
 
-def load_job_env(job_dir: Path) -> None:
-    """Load ``.env`` from a job directory."""
-    load_dotenv(job_dir / ".env")
+def load_image_utility_env() -> None:
+    """Load ``image_utility/.env`` (single configuration for all jobs)."""
+    load_dotenv(PACKAGE_DIR / ".env")
 
 
-def init_job_logging(default_filename: str) -> logging.Logger:
-    """Initialize common file/stdout logging and return the caller logger."""
-    init_logging(also_stdout=True, default_filename=default_filename)
+def utility_log_dir() -> Path:
+    """Directory for log files: ``IMAGE_UTIL_LOG_DIR`` or ``<workspace>/log``."""
+    raw = os.getenv(ENV_LOG_DIR, "").strip()
+    if raw:
+        p = Path(raw).expanduser()
+        return p if p.is_absolute() else (PACKAGE_DIR.parent / p).resolve()
+    return DEFAULT_LOG_DIR
+
+
+def init_job_logging(log_filename: str) -> logging.Logger:
+    """Configure :mod:`app_logging` under workspace ``log/`` plus stdout."""
+    log_dir = utility_log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    init_logging(log_file=log_dir / log_filename, also_stdout=True)
     return logging.getLogger(__name__)
 
 

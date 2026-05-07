@@ -10,7 +10,7 @@ from PIL import Image
 
 from image_utility.utils import (
     init_job_logging,
-    load_job_env,
+    load_image_utility_env,
     parse_positive_int_env,
     resolve_dir_from_env,
     sorted_image_files,
@@ -21,7 +21,6 @@ ENV_OUTPUT_DIR = "IMAGE_UTIL_OUTPUT_DIR"
 ENV_MAX_FILES = "IMAGE_UTIL_MAX_FILES"
 WEBP_SIZE = 950
 THUMBNAIL_SIZE = 420
-_MODULE_DIR = Path(__file__).resolve().parent
 
 
 def _stem_trailing_index(stem: str) -> int | None:
@@ -99,9 +98,9 @@ def compute_product_info_images(
 
 
 def run() -> int:
-    """Run the WebP conversion job from ``compress/.env``."""
-    load_job_env(_MODULE_DIR)
-    init_job_logging(default_filename="compress.log")
+    """Run the WebP conversion job using ``image_utility/.env``."""
+    load_image_utility_env()
+    init_job_logging("compress.log")
     logger = logging.getLogger(__name__)
 
     input_dir = resolve_dir_from_env(ENV_INPUT_DIR)
