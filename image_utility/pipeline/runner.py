@@ -40,7 +40,7 @@ def _parse_steps_from_env() -> list[str]:
 
 def _ensure_debug_layout() -> None:
     root = WORKSPACE_ROOT / "debug"
-    for name in ("isolate", "compose", "shadow"):
+    for name in ("isolate", "compose", "shadow", "polish"):
         (root / name).mkdir(parents=True, exist_ok=True)
 
 
@@ -74,6 +74,21 @@ def _write_final_output(ctx: PipelineContext, logger: logging.Logger) -> bool:
     try:
         ctx.output_path.mkdir(parents=True, exist_ok=True)
         stem = ctx.input_path.stem
+        write_format = (ctx.metadata.get("write_format") or "jpeg").lower()
+
+        if write_format == "webp" and ctx.current_image is not None:
+            dest = ctx.output_path / f"{stem}.webp"
+            quality = int(ctx.metadata.get("webp_quality", 100))
+            Image.fromarray(ctx.current_image, "RGB").save(dest, "webp", quality=quality)
+            logger.info("Wrote %s", dest.name)
+            return True
+
+        if ctx.metadata.get("compose_applied") and ctx.current_image is not None:
+            dest = ctx.output_path / f"{stem}.jpg"
+            quality = int(ctx.metadata.get("jpeg_quality", 94))
+            Image.fromarray(ctx.current_image, "RGB").save(dest, "JPEG", quality=quality)
+            logger.info("Wrote composed JPEG %s", dest.name)
+            return True
 
         if ctx.current_rgba is not None:
             dest = ctx.output_path / f"{stem}.png"
@@ -85,7 +100,6 @@ def _write_final_output(ctx: PipelineContext, logger: logging.Logger) -> bool:
             logger.warning("Skip %s: no raster to write.", ctx.input_path.name)
             return False
 
-        write_format = (ctx.metadata.get("write_format") or "jpeg").lower()
         if write_format == "webp":
             dest = ctx.output_path / f"{stem}.webp"
             quality = int(ctx.metadata.get("webp_quality", 100))

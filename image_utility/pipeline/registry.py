@@ -27,11 +27,17 @@ def _ensure_default_phases() -> None:
     if PHASE_REGISTRY:
         return
 
+    from image_utility.compose.phase import ComposePhase
     from image_utility.compress.phase import CompressPhase
     from image_utility.isolate.phase import IsolatePhase
+    from image_utility.polish.phase import PolishPhase
+    from image_utility.shadow.phase import ShadowPhase
 
     register_phase(CompressPhase())
     register_phase(IsolatePhase())
+    register_phase(ComposePhase())
+    register_phase(ShadowPhase())
+    register_phase(PolishPhase())
 
 
 def resolve_pipeline_phases(step_names: list[str]) -> list[PipelinePhase]:

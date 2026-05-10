@@ -1,4 +1,4 @@
-"""Isolate phase orchestration (delegates to segmentation, cleanup, debug)."""
+"""Isolate pipeline orchestration (high-level steps only)."""
 
 from __future__ import annotations
 
@@ -10,47 +10,54 @@ import numpy as np
 from image_utility.pipeline.context import PipelineContext
 
 from .cleanup import (
-    analyze_components,
-    apply_label_mask_to_alpha,
-    binary_foreground_mask,
-    compose_isolated_rgba,
     morphological_post_open,
     morphological_pre_cc,
-    refine_alpha_soft,
-    remove_tiny_islands,
+    strip_small_fragments,
+)
+from .components import (
+    analyze_connected_components,
+    apply_kept_label_to_alpha,
+    binary_foreground_mask,
     select_product_label,
 )
 from .config import IsolateConfig, load_isolate_config
-from .debug import save_alpha_png, save_components_viz, save_selection_overlay
-from .segmentation import alpha_channel, rgba_from_rgb
+from .debug import write_isolate_debug
+from .refinement import compose_isolated_rgba, refine_alpha_soft
+from .segmentation import extract_alpha, segment_rgba
 
 LOGGER = logging.getLogger(__name__)
 
 
-def process_isolate(context: PipelineContext, *, cfg: IsolateConfig | None = None) -> PipelineContext:
+def process_isolate(
+    context: PipelineContext,
+    *,
+    cfg: IsolateConfig | None = None,
+) -> PipelineContext:
     """
-    Populates ``context.current_rgba`` and ``context.alpha_mask`` (H×W uint8).
+    Populate ``context.current_rgba`` and ``context.alpha_mask``.
 
-    Raises ``OSError`` on recoverable failures so the runner can skip the file.
+    Raises ``OSError`` for recoverable failures so the runner can skip the file.
     """
     cfg = cfg or load_isolate_config()
+    stem = context.input_path.stem
+    name = context.input_path.name
+
     rgb = context.current_image
     if rgb is None:
         raise OSError("isolate requires current_image (RGB)")
 
-    stem = context.input_path.stem
-    LOGGER.info("Isolate: segmentation start %s", context.input_path.name)
-
-    rgba = rgba_from_rgb(rgb, model_name=cfg.rembg_model_name)
-    alpha = alpha_channel(rgba)
+    # 1–2 Segmentation + alpha
+    rgba = segment_rgba(rgb, cfg)
+    alpha = extract_alpha(rgba)
+    LOGGER.info("[isolate] segmented %s", name)
 
     if not np.any(alpha > cfg.alpha_visibility_threshold):
         raise OSError("segmentation collapse: empty alpha")
 
+    # 3 Component analysis (pre-mask + CC + selection)
     bin_m = binary_foreground_mask(alpha, cfg)
     bin_m = morphological_pre_cc(bin_m, cfg.morph_pre_close_size)
-
-    labels, stats, centroids = analyze_components(bin_m)
+    labels, stats, centroids = analyze_connected_components(bin_m)
     if stats.shape[0] <= 1:
         raise OSError("no foreground components detected")
 
@@ -58,25 +65,25 @@ def process_isolate(context: PipelineContext, *, cfg: IsolateConfig | None = Non
     if keep is None:
         raise OSError("could not select a product component")
 
+    LOGGER.info("[isolate] detected %d components", len(infos))
+
     sel_area = int(stats[keep, cv2.CC_STAT_AREA])
     LOGGER.info(
-        "Isolate: components=%d selected_label=%d area=%d",
-        len(infos),
+        "[isolate] selected label=%d area=%d",
         keep,
         sel_area,
     )
 
-    masked_alpha = apply_label_mask_to_alpha(alpha, labels, keep)
-
-    _, bin_frag = cv2.threshold(
-        masked_alpha, cfg.alpha_visibility_threshold, 255, cv2.THRESH_BINARY
-    )
-    clean_bin = remove_tiny_islands(bin_frag, min_area=cfg.min_fragment_area_after_select)
-    masked_alpha = np.where(clean_bin > 0, masked_alpha, 0).astype(np.uint8)
-
+    # 4 Artifact cleanup
+    masked_alpha = apply_kept_label_to_alpha(alpha, labels, keep)
+    masked_alpha, bin_frag, clean_bin = strip_small_fragments(masked_alpha, cfg)
     masked_alpha = morphological_post_open(
-        masked_alpha, cfg.morph_post_open_size, cfg.alpha_visibility_threshold
+        masked_alpha,
+        cfg.morph_post_open_size,
+        cfg.alpha_visibility_threshold,
     )
+
+    # 5 Edge refinement + RGBA
     masked_alpha = refine_alpha_soft(masked_alpha, cfg.edge_blur_sigma)
 
     if not np.any(masked_alpha > cfg.alpha_visibility_threshold):
@@ -84,15 +91,20 @@ def process_isolate(context: PipelineContext, *, cfg: IsolateConfig | None = Non
 
     out_rgba = compose_isolated_rgba(rgba, masked_alpha, cfg)
 
-    if cfg.debug_enabled:
-        save_alpha_png(stem, masked_alpha)
-        save_components_viz(stem, labels)
-        save_selection_overlay(stem, rgb, labels, keep)
+    # 6 Debug output
+    write_isolate_debug(
+        cfg,
+        stem=stem,
+        rgb=rgb,
+        labels=labels,
+        keep_label=keep,
+        refined_alpha=masked_alpha,
+    )
 
-    fragments_removed = int(np.count_nonzero(bin_frag) - np.count_nonzero(clean_bin))
+    fragments_delta = int(np.count_nonzero(bin_frag) - np.count_nonzero(clean_bin))
     LOGGER.info(
-        "Isolate: cleanup fragment_pixels~=%d edge_sigma=%s",
-        max(0, fragments_removed),
+        "[isolate] cleaned artifacts fragment_delta~=%d sigma=%s",
+        max(0, fragments_delta),
         cfg.edge_blur_sigma,
     )
 
@@ -103,5 +115,5 @@ def process_isolate(context: PipelineContext, *, cfg: IsolateConfig | None = Non
     context.debug["isolate_selection_scores"] = {int(k): round(float(v), 4) for k, v in scores.items()}
     context.debug["isolate_selected_area"] = sel_area
 
-    LOGGER.info("Isolate: complete %s", context.input_path.name)
+    LOGGER.info("[isolate] complete %s", name)
     return context

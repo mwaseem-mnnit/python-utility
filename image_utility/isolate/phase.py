@@ -9,9 +9,14 @@ from .processor import process_isolate
 
 
 class IsolatePhase(PipelinePhase):
-    """rembg + CC/heuristics → transparent RGBA; no resize or composition."""
+    """rembg + connected components + cleanup → transparent RGBA; no resize or composition."""
 
     phase_name = "isolate"
 
     def process(self, context: PipelineContext) -> PipelineContext:
+        """
+        Run isolation: segment → analyze components → clean → refine → optional debug.
+
+        Delegates to :func:`process_isolate` for file-scope orchestration.
+        """
         return process_isolate(context)

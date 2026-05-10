@@ -56,11 +56,17 @@ class IsolateConfig:
     complexity_weight: float
     """Weight for contour complexity (structure) in the score."""
 
+    complexity_score_cap: float
+    """Upper bound on contour-complexity term before weighting."""
+
     aspect_ratio_penalty_threshold: float
     """If max(w,h)/min(w,h) exceeds this, apply ``elongation_penalty``."""
 
     elongation_penalty: float
     """Multiply score by this when bbox is very elongated (e.g. finger-like)."""
+
+    math_epsilon: float
+    """Small value to avoid division by zero in normalized distances."""
 
     # Edge refinement
     edge_blur_sigma: float
@@ -77,6 +83,12 @@ class IsolateConfig:
     debug_enabled: bool
     """Write artifacts under ``debug/isolate/`` when True."""
 
+    debug_overlay_blend: float
+    """Green overlay blend strength for ``selected`` debug PNG (0–1)."""
+
+    debug_color_seed: int
+    """PRNG seed for deterministic pseudo-colors in component viz."""
+
 
 def load_isolate_config() -> IsolateConfig:
     """Load configuration from ``IMAGE_UTIL_ISOLATE_*`` env vars (see defaults)."""
@@ -89,10 +101,14 @@ def load_isolate_config() -> IsolateConfig:
         morph_post_open_size=_int_env("IMAGE_UTIL_ISOLATE_MORPH_POST_OPEN", 0),
         center_bias=_float_env("IMAGE_UTIL_ISOLATE_CENTER_BIAS", 2.0),
         complexity_weight=_float_env("IMAGE_UTIL_ISOLATE_COMPLEXITY_WEIGHT", 0.15),
+        complexity_score_cap=_float_env("IMAGE_UTIL_ISOLATE_COMPLEXITY_CAP", 10.0),
         aspect_ratio_penalty_threshold=_float_env("IMAGE_UTIL_ISOLATE_ASPECT_RATIO_THRESH", 4.0),
         elongation_penalty=_float_env("IMAGE_UTIL_ISOLATE_ELONGATION_PENALTY", 0.65),
+        math_epsilon=_float_env("IMAGE_UTIL_ISOLATE_MATH_EPS", 1e-6),
         edge_blur_sigma=_float_env("IMAGE_UTIL_ISOLATE_EDGE_SIGMA", 0.85),
         rgb_zero_below_alpha=_int_env("IMAGE_UTIL_ISOLATE_RGB_ZERO_ALPHA", 8),
         rembg_model_name=os.getenv("IMAGE_UTIL_ISOLATE_REMBG_MODEL", "").strip() or None,
         debug_enabled=_bool_env("IMAGE_UTIL_ISOLATE_DEBUG"),
+        debug_overlay_blend=_float_env("IMAGE_UTIL_ISOLATE_DEBUG_BLEND", 0.35),
+        debug_color_seed=_int_env("IMAGE_UTIL_ISOLATE_DEBUG_COLOR_SEED", 42),
     )
