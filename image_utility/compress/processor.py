@@ -1,4 +1,4 @@
-"""WebP conversion processor."""
+"""WebP conversion helpers and compress CLI entry (orchestration lives in ``pipeline.runner``)."""
 
 from __future__ import annotations
 
@@ -8,34 +8,12 @@ from pathlib import Path
 
 from PIL import Image
 
-from image_utility.utils import (
-    init_job_logging,
-    load_image_utility_env,
-    parse_positive_int_env,
-    resolve_dir_from_env,
-    sorted_image_files,
-)
-
-ENV_INPUT_DIR = "IMAGE_UTIL_INPUT_DIR"
-ENV_OUTPUT_DIR = "IMAGE_UTIL_OUTPUT_DIR"
-ENV_MAX_FILES = "IMAGE_UTIL_MAX_FILES"
-WEBP_SIZE = 950
-THUMBNAIL_SIZE = 420
-
-
-def _stem_trailing_index(stem: str) -> int | None:
-    """Parse ``<identifier>_<index>`` from filename stem; return index or None."""
-    if "_" not in stem:
-        return None
-    tail = stem.rsplit("_", 1)[-1]
-    if not tail.isdigit():
-        return None
-    return int(tail, 10)
+LOGGER = logging.getLogger(__name__)
 
 
 def convert_to_webp(
-    input_path: str | Path,
-    output_path: str | Path,
+    input_path: str | os.PathLike[str],
+    output_path: str | os.PathLike[str],
     width: int,
     height: int,
 ) -> None:
@@ -46,8 +24,8 @@ def convert_to_webp(
 
 
 def compute_product_info_images(
-    input_dir: Path,
-    output_dir: Path,
+    input_dir: os.PathLike[str],
+    output_dir: os.PathLike[str],
     *,
     is_thumbnail: bool = False,
     logger: logging.Logger | None = None,
@@ -56,77 +34,62 @@ def compute_product_info_images(
     """
     Convert JPG/JPEG/PNG files in ``input_dir`` to WebP under ``output_dir``.
 
-    When ``is_thumbnail`` is True, only files whose stem matches ``<identifier>_0``
-    are converted into ``output_dir/thumbnail``.
+    Uses the centralized pipeline with a single ``compress`` step so behavior matches
+    :func:`run`. Kept for callers that invoke the utility programmatically.
     """
-    log = logger or logging.getLogger(__name__)
-    input_dir = input_dir.resolve()
-    output_dir = output_dir.resolve()
+    from image_utility.pipeline.runner import run_pipeline
 
-    if not input_dir.is_dir():
-        raise NotADirectoryError(f"Not a directory: {input_dir}")
+    log = logger or LOGGER
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
 
-    size = THUMBNAIL_SIZE if is_thumbnail else WEBP_SIZE
-    dest_root = output_dir / "thumbnail" if is_thumbnail else output_dir
-    dest_root.mkdir(parents=True, exist_ok=True)
+    if not input_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {input_path}")
 
-    log.info("Input directory: %s", input_dir)
-    log.info("Output directory: %s", dest_root)
     if is_thumbnail:
-        log.info("Thumbnail mode: index 0 only, size %s", THUMBNAIL_SIZE)
+        os.environ["IMAGE_UTIL_THUMBNAIL"] = "1"
+    else:
+        os.environ.pop("IMAGE_UTIL_THUMBNAIL", None)
 
-    files = sorted_image_files(input_dir)
-    if is_thumbnail:
-        files = [p for p in files if _stem_trailing_index(p.stem) == 0]
+    prev_in = os.environ.get("IMAGE_UTIL_INPUT_DIR")
+    prev_out = os.environ.get("IMAGE_UTIL_OUTPUT_DIR")
+    prev_max = os.environ.get("IMAGE_UTIL_MAX_FILES")
+    prev_steps = os.environ.get("IMAGE_UTIL_PIPELINE_STEPS")
 
-    ok, skipped = 0, 0
-    for source_path in files:
-        if max_files is not None and (ok + skipped) >= max_files:
-            log.info("Reached %s=%s, stopping.", ENV_MAX_FILES, max_files)
-            break
+    try:
+        os.environ["IMAGE_UTIL_INPUT_DIR"] = str(input_path.resolve())
+        os.environ["IMAGE_UTIL_OUTPUT_DIR"] = str(output_path.resolve())
+        if max_files is not None:
+            os.environ["IMAGE_UTIL_MAX_FILES"] = str(max_files)
+        else:
+            os.environ.pop("IMAGE_UTIL_MAX_FILES", None)
+        os.environ["IMAGE_UTIL_PIPELINE_STEPS"] = "compress"
+        summary = run_pipeline(steps=["compress"])
+    finally:
+        _restore_env("IMAGE_UTIL_INPUT_DIR", prev_in)
+        _restore_env("IMAGE_UTIL_OUTPUT_DIR", prev_out)
+        _restore_env("IMAGE_UTIL_MAX_FILES", prev_max)
+        _restore_env("IMAGE_UTIL_PIPELINE_STEPS", prev_steps)
 
-        destination_path = dest_root / f"{source_path.stem}.webp"
-        try:
-            convert_to_webp(source_path, destination_path, size, size)
-            ok += 1
-            log.info("Converted %s -> %s", source_path.name, destination_path.name)
-        except OSError as exc:
-            skipped += 1
-            log.warning("Skip %s: %s", source_path.name, exc)
+    if summary.exit_code != 0:
+        log.error("Pipeline compress job exited with code %s.", summary.exit_code)
+        return 0, 0
 
-    return ok, skipped
+    return summary.processed, summary.skipped
+
+
+def _restore_env(key: str, previous: str | None) -> None:
+    if previous is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = previous
 
 
 def run() -> int:
-    """Run the WebP conversion job using ``image_utility/.env``."""
+    """Run WebP conversion via the shared pipeline orchestrator."""
+    from image_utility.pipeline.runner import run_pipeline
+    from image_utility.utils import init_job_logging, load_image_utility_env
+
     load_image_utility_env()
     init_job_logging("compress.log")
-    logger = logging.getLogger(__name__)
-
-    input_dir = resolve_dir_from_env(ENV_INPUT_DIR)
-    output_dir = resolve_dir_from_env(ENV_OUTPUT_DIR)
-    max_files = parse_positive_int_env(ENV_MAX_FILES)
-
-    if input_dir is None:
-        logger.error("%s is not set in .env.", ENV_INPUT_DIR)
-        return 1
-    if output_dir is None:
-        logger.error("%s is not set in .env.", ENV_OUTPUT_DIR)
-        return 1
-
-    try:
-        ok, skipped = compute_product_info_images(
-            input_dir,
-            output_dir,
-            logger=logger,
-            max_files=max_files,
-            is_thumbnail=os.getenv("IMAGE_UTIL_THUMBNAIL", "").strip() == "1",
-        )
-    except NotADirectoryError as exc:
-        logger.error("%s", exc)
-        return 1
-
-    logger.info("Done. %s image(s) converted, %s skipped.", ok, skipped)
-    return 0
-
-
+    return run_pipeline(steps=["compress"]).exit_code

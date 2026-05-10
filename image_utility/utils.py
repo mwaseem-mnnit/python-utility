@@ -13,7 +13,17 @@ from app_logging import init_logging
 
 from .config import DEFAULT_LOG_DIR, ENV_LOG_DIR, PACKAGE_DIR
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".HEIC"}
+
+
+def stem_trailing_index(stem: str) -> int | None:
+    """Parse ``<identifier>_<index>`` from filename stem; return index or None."""
+    if "_" not in stem:
+        return None
+    tail = stem.rsplit("_", 1)[-1]
+    if not tail.isdigit():
+        return None
+    return int(tail, 10)
 
 
 def load_image_utility_env() -> None:

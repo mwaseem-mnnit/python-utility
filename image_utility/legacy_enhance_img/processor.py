@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image
 from rembg import new_session, remove
 
+from image_utility.config import ENV_INPUT_DIR, ENV_OUTPUT_DIR, ENV_MAX_FILES
 from image_utility.utils import (
     init_job_logging,
     load_image_utility_env,
@@ -24,10 +25,6 @@ from image_utility.utils import (
     resolve_dir_from_env,
     sorted_image_files,
 )
-
-ENV_INPUT_DIR = "IMAGE_UTIL_ENHANCE_INPUT_DIR"
-ENV_OUTPUT_DIR = "IMAGE_UTIL_ENHANCE_OUTPUT_DIR"
-ENV_MAX_FILES = "IMAGE_UTIL_ENHANCE_MAX_FILES"
 
 CANVAS_WIDTH = 2000
 CANVAS_HEIGHT = 1300

@@ -16,11 +16,12 @@ if __package__ in (None, ""):
         ENV_DEFAULT_JOB,
         JOB_COMPRESS,
         JOB_ENHANCE,
+        JOB_PIPELINE,
     )
     from image_utility.dispatcher import run_job
     from image_utility.utils import load_image_utility_env
 else:
-    from .config import DEFAULT_JOB_NAME, ENV_DEFAULT_JOB, JOB_COMPRESS, JOB_ENHANCE
+    from .config import DEFAULT_JOB_NAME, ENV_DEFAULT_JOB, JOB_COMPRESS, JOB_ENHANCE, JOB_PIPELINE
     from .dispatcher import run_job
     from .utils import load_image_utility_env
 
@@ -33,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         "job",
         nargs="?",
         help=(
-            f"Job to run ({JOB_COMPRESS}, {JOB_ENHANCE}). "
+            f"Job to run ({JOB_PIPELINE}, {JOB_COMPRESS}, {JOB_ENHANCE}). "
             f"If omitted, reads {ENV_DEFAULT_JOB} from image_utility/.env "
             f"(default name: {DEFAULT_JOB_NAME})."
         ),
