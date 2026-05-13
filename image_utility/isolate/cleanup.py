@@ -65,7 +65,7 @@ def morphological_post_open(
     open_ksize: int,
     bin_thresh: int,
 ) -> UInt8:
-    """Light opening on binarized alpha to shed thin bridges (optional)."""
+    """Light opening on binarized alpha to shed thin bridges (off by default; keep conservative)."""
     if open_ksize <= 0:
         return alpha
     k = open_ksize | 1

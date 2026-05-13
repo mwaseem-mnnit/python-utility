@@ -4,3 +4,8 @@ opencv-python-headless>=4.10.0.0
 numpy>=1.26.0
 rembg>=2.0.50
 onnxruntime>=1.18.0
+
+# Optional isolate v3 (MobileSAM): install PyTorch + timm + MobileSAM repo, set
+# IMAGE_UTIL_ISOLATE_SEMANTIC=1 and IMAGE_UTIL_ISOLATE_SAM_CHECKPOINT=/path/to/mobile_sam.pt
+# Example: pip install torch torchvision timm
+#          pip install git+https://github.com/ChaoningZhang/MobileSAM.git

@@ -18,11 +18,12 @@ from .components import (
     analyze_connected_components,
     apply_kept_label_to_alpha,
     binary_foreground_mask,
-    select_product_label,
+    select_best_component,
 )
 from .config import IsolateConfig, load_isolate_config
 from .debug import write_isolate_debug
 from .refinement import compose_isolated_rgba, refine_alpha_soft
+from .semantic.refinement import apply_semantic_refinement, should_activate_semantic_refinement
 from .segmentation import extract_alpha, segment_rgba
 
 LOGGER = logging.getLogger(__name__)
@@ -61,21 +62,41 @@ def process_isolate(
     if stats.shape[0] <= 1:
         raise OSError("no foreground components detected")
 
-    keep, infos, scores = select_product_label(labels, stats, centroids, cfg)
+    keep, ranked = select_best_component(labels, stats, centroids, cfg)
     if keep is None:
         raise OSError("could not select a product component")
 
-    LOGGER.info("[isolate] detected %d components", len(infos))
+    n_fg = int(stats.shape[0] - 1)
+    LOGGER.info("[isolate] ranked %d foreground components", n_fg)
 
     sel_area = int(stats[keep, cv2.CC_STAT_AREA])
-    LOGGER.info(
-        "[isolate] selected label=%d area=%d",
-        keep,
-        sel_area,
-    )
+    best_feats = next(f for f in ranked if f.label == keep)
+    LOGGER.info("[isolate] selected component confidence=%.2f", best_feats.confidence)
+    LOGGER.info("[isolate] selected label=%d area=%d", keep, sel_area)
+    if cfg.v2_weight_border_contact > 0 and best_feats.border_contact_ratio > 0.02:
+        LOGGER.info("[isolate] applied border contact penalty")
 
-    # 4 Artifact cleanup
+    # 4 Artifact cleanup (heuristic CC mask, optionally replaced by SAM v3)
     masked_alpha = apply_kept_label_to_alpha(alpha, labels, keep)
+    v3: dict[str, object] = {"used": False}
+    if should_activate_semantic_refinement(stats, alpha, ranked, cfg):
+        LOGGER.info("[isolate] semantic refinement activated")
+        try:
+            sam_alpha, sem_meta = apply_semantic_refinement(
+                rgb, alpha, labels, keep, cfg, stem=stem
+            )
+        except Exception as e:
+            LOGGER.warning("[isolate] semantic refinement failed: %s", e)
+            sam_alpha, sem_meta = None, {"reason": "exception", "error": str(e)}
+        if sam_alpha is not None:
+            masked_alpha = sam_alpha
+            v3 = {**sem_meta, "used": True}
+        else:
+            LOGGER.info("[isolate] fallback to heuristic path")
+            v3 = {**sem_meta, "used": False, "fallback_heuristic": True}
+    elif cfg.semantic_refinement_enabled:
+        v3["skipped"] = True
+
     masked_alpha, bin_frag, clean_bin = strip_small_fragments(masked_alpha, cfg)
     masked_alpha = morphological_post_open(
         masked_alpha,
@@ -99,6 +120,7 @@ def process_isolate(
         labels=labels,
         keep_label=keep,
         refined_alpha=masked_alpha,
+        ranked=ranked,
     )
 
     fragments_delta = int(np.count_nonzero(bin_frag) - np.count_nonzero(clean_bin))
@@ -110,10 +132,30 @@ def process_isolate(
 
     context.current_rgba = np.ascontiguousarray(out_rgba)
     context.alpha_mask = np.ascontiguousarray(masked_alpha)
-    context.debug["isolate_component_count"] = len(infos)
+    context.debug["isolate_component_count"] = n_fg
     context.debug["isolate_selected_label"] = keep
-    context.debug["isolate_selection_scores"] = {int(k): round(float(v), 4) for k, v in scores.items()}
+    context.debug["isolate_selection_scores"] = {
+        int(f.label): round(float(f.confidence), 4) for f in ranked
+    }
     context.debug["isolate_selected_area"] = sel_area
+    context.debug["isolate_selected_confidence"] = round(float(best_feats.confidence), 4)
+    context.debug["isolate_v2_ranked"] = [
+        {
+            "label": f.label,
+            "area": f.area,
+            "confidence": round(float(f.confidence), 4),
+            "semantic": f.semantic,
+            "relative_area": round(float(f.relative_area), 4),
+            "border_contact_ratio": round(float(f.border_contact_ratio), 4),
+            "solidity": round(float(f.solidity), 4),
+            "elongation": round(float(f.elongation), 4),
+            "complexity": round(float(f.complexity), 4),
+            "bbox": [int(f.bbox[0]), int(f.bbox[1]), int(f.bbox[2]), int(f.bbox[3])],
+            "breakdown": {k: round(float(v), 4) for k, v in f.breakdown.items()},
+        }
+        for f in ranked
+    ]
+    context.debug["isolate_v3_semantic"] = v3
 
     LOGGER.info("[isolate] complete %s", name)
     return context
