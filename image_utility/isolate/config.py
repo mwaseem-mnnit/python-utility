@@ -177,6 +177,24 @@ class IsolateConfig:
     semantic_trigger_fg_area_ratio: float
     """Foreground / image area; used with multi-region bulky trigger."""
 
+    semantic_trigger_single_border_contact: float
+    """Single merged FG: activate when ``border_contact_ratio`` ≥ this."""
+
+    semantic_trigger_single_solidity_max: float
+    """Single merged FG: activate when ``solidity`` ≤ this (irregular / merged silhouette)."""
+
+    semantic_trigger_single_elongation_min: float
+    """Single merged FG: activate when elongation ≥ this."""
+
+    semantic_trigger_single_fill_ratio_min: float
+    """Single merged FG: activate when bbox fill (area / bbox) **below** this."""
+
+    semantic_trigger_single_fg_ratio_min: float
+    """Minimum ``fg_area / image_area`` before single-region geometry triggers apply."""
+
+    semantic_trigger_single_complexity_min: float
+    """Single merged FG: activate when contour complexity ≥ this (ragged / spread silhouette)."""
+
     semantic_weight_area: float
     semantic_weight_center: float
     semantic_weight_border: float
@@ -271,6 +289,24 @@ def load_isolate_config() -> IsolateConfig:
         semantic_trigger_second_ratio_min=_float_env("IMAGE_UTIL_ISOLATE_SEM_TRIG_AMBIG", 0.82),
         semantic_trigger_border_min=_float_env("IMAGE_UTIL_ISOLATE_SEM_TRIG_BORDER", 0.14),
         semantic_trigger_fg_area_ratio=_float_env("IMAGE_UTIL_ISOLATE_SEM_TRIG_FG_RATIO", 0.38),
+        semantic_trigger_single_border_contact=_float_env(
+            "IMAGE_UTIL_ISOLATE_SEM_TRIG_SINGLE_BORDER", 0.13
+        ),
+        semantic_trigger_single_solidity_max=_float_env(
+            "IMAGE_UTIL_ISOLATE_SEM_TRIG_SINGLE_SOLIDITY_MAX", 0.44
+        ),
+        semantic_trigger_single_elongation_min=_float_env(
+            "IMAGE_UTIL_ISOLATE_SEM_TRIG_SINGLE_ELONG_MIN", 3.0
+        ),
+        semantic_trigger_single_fill_ratio_min=_float_env(
+            "IMAGE_UTIL_ISOLATE_SEM_TRIG_SINGLE_FILL_MIN", 0.42
+        ),
+        semantic_trigger_single_fg_ratio_min=_float_env(
+            "IMAGE_UTIL_ISOLATE_SEM_TRIG_SINGLE_FG_MIN", 0.10
+        ),
+        semantic_trigger_single_complexity_min=_float_env(
+            "IMAGE_UTIL_ISOLATE_SEM_TRIG_SINGLE_COMPLEXITY_MIN", 7.0
+        ),
         semantic_weight_area=_float_env("IMAGE_UTIL_ISOLATE_SEM_W_AREA", 1.0),
         semantic_weight_center=_float_env("IMAGE_UTIL_ISOLATE_SEM_W_CENTER", 1.2),
         semantic_weight_border=_float_env("IMAGE_UTIL_ISOLATE_SEM_W_BORDER", 1.85),

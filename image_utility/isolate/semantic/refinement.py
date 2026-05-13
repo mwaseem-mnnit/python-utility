@@ -20,37 +20,52 @@ from .sam_runner import generate_raw_masks, is_sam_available
 LOGGER = logging.getLogger(__name__)
 
 
+def _primary_component_feature(
+    ranked: list[ComponentFeatures],
+    cfg: IsolateConfig,
+) -> ComponentFeatures | None:
+    if not ranked:
+        return None
+    for f in ranked:
+        if f.area >= cfg.min_component_area:
+            return f
+    return ranked[0]
+
+
 def should_activate_semantic_refinement(
     stats: np.ndarray,
     alpha: NDArray[np.uint8],
     ranked: list[ComponentFeatures],
     cfg: IsolateConfig,
-) -> bool:
-    if not cfg.semantic_refinement_enabled:
-        return False
-    if not is_sam_available(cfg):
-        return False
+) -> tuple[bool, dict[str, Any]]:
+    """
+    Decide whether to run SAM semantic refinement; return activation metadata for debug/log.
 
+    ``stats`` rows: label 0 = background, ≥1 foreground CCs. A **single** merged product capture is
+    ``stats.shape[0] == 2`` and must not be rejected solely for component count.
+    """
     n = stats.shape[0]
-    if n <= 2 or not ranked:
-        return False
+    n_fg = max(0, n - 1)
+    base_meta: dict[str, Any] = {"reason": None, "n_foreground_cc": n_fg}
+
+    if not cfg.semantic_refinement_enabled:
+        return False, {**base_meta, "inactive": "semantic_disabled"}
+    if not is_sam_available(cfg):
+        return False, {**base_meta, "inactive": "sam_unavailable"}
+    if not ranked:
+        return False, {**base_meta, "inactive": "empty_ranked"}
 
     fg_area = int(np.count_nonzero(alpha > cfg.alpha_visibility_threshold))
     ih, iw = alpha.shape[:2]
     image_area = max(ih * iw, 1)
     fg_ratio = fg_area / float(image_area)
 
-    total_cc = sum(int(stats[i, cv2.CC_STAT_AREA]) for i in range(1, n))
+    total_cc = sum(int(stats[i, cv2.CC_STAT_AREA]) for i in range(1, n)) if n > 1 else 0
     min_abs = max(
         cfg.min_component_area,
         int(total_cc * cfg.semantic_trigger_large_area_ratio),
     )
-
-    large_ids = [
-        i
-        for i in range(1, n)
-        if int(stats[i, cv2.CC_STAT_AREA]) >= min_abs
-    ]
+    large_ids = [i for i in range(1, n) if int(stats[i, cv2.CC_STAT_AREA]) >= min_abs]
     large_n = len(large_ids)
 
     viable = [f for f in ranked if f.area >= cfg.min_component_area and f.confidence > 0]
@@ -60,30 +75,89 @@ def should_activate_semantic_refinement(
 
     top_borders = [f.border_contact_ratio for f in ranked[:2] if f.area >= cfg.min_component_area]
 
-    # Multiple large connected regions
-    if large_n >= cfg.semantic_trigger_min_large_regions:
-        return True
+    base_signals: dict[str, Any] = {
+        "n_foreground_cc": n_fg,
+        "fg_area_ratio": round(fg_ratio, 4),
+        "v2_best_confidence": round(best_conf, 4),
+        "large_region_count": large_n,
+    }
 
-    # Low confidence separation (ambiguous winner)
+    def accept(reason: str, **signal_kw: float) -> tuple[bool, dict[str, Any]]:
+        signals = {**base_signals, **{k: round(float(v), 4) for k, v in signal_kw.items()}}
+        meta: dict[str, Any] = {**base_meta, "reason": reason, "signals": signals}
+        LOGGER.info("[isolate] semantic trigger: %s", reason)
+        shown = 0
+        for k, v in signal_kw.items():
+            if shown >= 3:
+                break
+            LOGGER.info("[isolate] semantic trigger %s=%.2f", k, float(v))
+            shown += 1
+        return True, meta
+
     if best_conf < cfg.semantic_trigger_v2_conf_below:
-        return True
+        return accept("ambiguous_confidence", v2_best_confidence=best_conf)
 
     if len(viable) >= 2 and ambiguity >= cfg.semantic_trigger_second_ratio_min:
-        return True
+        return accept("ambiguous_confidence", second_over_best=ambiguity)
 
-    # Border-contact conflict between top two plausible regions
+    if large_n >= cfg.semantic_trigger_min_large_regions:
+        return accept("multi_large_regions", large_n=float(large_n))
+
     if (
         len(top_borders) >= 2
         and top_borders[0] >= cfg.semantic_trigger_border_min
         and top_borders[1] >= cfg.semantic_trigger_border_min
     ):
-        return True
+        return accept("border_conflict", border_top0=top_borders[0], border_top1=top_borders[1])
 
-    # Bulky multi-part foreground
     if large_n >= 2 and fg_ratio >= cfg.semantic_trigger_fg_area_ratio:
-        return True
+        return accept("multi_large_regions", bulky_fg_ratio=fg_ratio)
 
-    return False
+    if n_fg == 1 and fg_ratio >= cfg.semantic_trigger_single_fg_ratio_min:
+        feat = _primary_component_feature(ranked, cfg)
+        if feat is not None:
+            _bx, _by, bw, bh = feat.bbox
+            fill_ratio = float(feat.area) / max(float(bw * bh), 1.0)
+            geom = {
+                "border_contact": float(feat.border_contact_ratio),
+                "solidity": float(feat.solidity),
+                "elongation": float(feat.elongation),
+                "fill_ratio": float(fill_ratio),
+                "complexity": float(feat.complexity),
+            }
+            triggered: list[str] = []
+            if feat.border_contact_ratio >= cfg.semantic_trigger_single_border_contact:
+                triggered.append("border_contact")
+            if feat.solidity <= cfg.semantic_trigger_single_solidity_max:
+                triggered.append("solidity")
+            if feat.elongation >= cfg.semantic_trigger_single_elongation_min:
+                triggered.append("elongation")
+            if fill_ratio < cfg.semantic_trigger_single_fill_ratio_min:
+                triggered.append("fill_ratio")
+            if feat.complexity >= cfg.semantic_trigger_single_complexity_min:
+                triggered.append("complexity")
+
+            if triggered:
+                spread_only = set(triggered) <= {"fill_ratio", "complexity"}
+                reason = "fg_spread_conflict" if spread_only else "suspicious_single_region"
+                signals = {**base_signals, **{k: round(v, 4) for k, v in geom.items()}}
+                meta = {
+                    **base_meta,
+                    "reason": reason,
+                    "triggered_rules": triggered,
+                    "signals": signals,
+                }
+                LOGGER.info("[isolate] semantic trigger: %s", reason)
+                LOGGER.info("[isolate] semantic trigger rules=%s", ",".join(triggered))
+                LOGGER.info(
+                    "[isolate] semantic trigger border_contact=%.2f solidity=%.2f elongation=%.2f",
+                    geom["border_contact"],
+                    geom["solidity"],
+                    geom["elongation"],
+                )
+                return True, meta
+
+    return False, {**base_meta, "signals": base_signals}
 
 
 def apply_semantic_refinement(

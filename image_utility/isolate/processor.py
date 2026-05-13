@@ -79,7 +79,9 @@ def process_isolate(
     # 4 Artifact cleanup (heuristic CC mask, optionally replaced by SAM v3)
     masked_alpha = apply_kept_label_to_alpha(alpha, labels, keep)
     v3: dict[str, object] = {"used": False}
-    if should_activate_semantic_refinement(stats, alpha, ranked, cfg):
+    activate_semantic, activation_meta = should_activate_semantic_refinement(stats, alpha, ranked, cfg)
+
+    if activate_semantic:
         LOGGER.info("[isolate] semantic refinement activated")
         try:
             sam_alpha, sem_meta = apply_semantic_refinement(
@@ -156,6 +158,9 @@ def process_isolate(
         for f in ranked
     ]
     context.debug["isolate_v3_semantic"] = v3
+    if cfg.semantic_refinement_enabled:
+        context.debug["semantic_activation_reason"] = activation_meta.get("reason") if activate_semantic else None
+        context.debug["semantic_activation_detail"] = activation_meta
 
     LOGGER.info("[isolate] complete %s", name)
     return context
