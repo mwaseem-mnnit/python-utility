@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 from PIL import Image
 from rembg import remove
 
-from .config import IsolateConfig
+from image_utility.isolate.config import IsolateConfig
 
 LOGGER = logging.getLogger(__name__)
 

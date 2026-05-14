@@ -3,28 +3,26 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import cv2
 import numpy as np
 
 from image_utility.pipeline.context import PipelineContext
+from image_utility.pipeline.phases.isolate.decomposition import DecompositionProcessor
 
 from .cleanup import (
     morphological_post_open,
-    morphological_pre_cc,
     strip_small_fragments,
 )
 from .components import (
-    analyze_connected_components,
     apply_kept_label_to_alpha,
-    binary_foreground_mask,
     select_best_component,
 )
 from .config import IsolateConfig, load_isolate_config
 from .debug import write_isolate_debug
 from .refinement import compose_isolated_rgba, refine_alpha_soft
 from .semantic.refinement import apply_semantic_refinement, should_activate_semantic_refinement
-from .segmentation import extract_alpha, segment_rgba
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,18 +45,46 @@ def process_isolate(
     if rgb is None:
         raise OSError("isolate requires current_image (RGB)")
 
-    # 1–2 Segmentation + alpha
-    rgba = segment_rgba(rgb, cfg)
-    alpha = extract_alpha(rgba)
+    # --- Decomposition stage (semantic proposals; bridge for legacy path) ---
+    decomp_proc = DecompositionProcessor()
+    try:
+        decomp = decomp_proc.run(rgb, stem=stem)
+    except OSError:
+        raise
+    except Exception as exc:
+        LOGGER.warning("[isolate] decomposition failed: %s", exc)
+        raise OSError(f"decomposition failed: {exc}") from exc
+
+    context.metadata["decomposition_result"] = decomp
+    context.debug["decomposition"] = {
+        "connected_region_count": len(decomp.connected_regions),
+        "semantic_candidate_count": len(decomp.semantic_candidates),
+        "sam_raw_mask_count": decomp.metadata.sam_raw_mask_count,
+        "alpha_candidate_count": decomp.metadata.alpha_candidate_count,
+        "notes": list(decomp.metadata.notes),
+    }
+
+    stop_after = os.getenv("ISOLATE_STOP_AFTER_STAGE", "").strip().lower()
+    if stop_after == "decomposition":
+        context.current_rgba = np.ascontiguousarray(decomp.base_rgba)
+        context.alpha_mask = np.ascontiguousarray(decomp.base_alpha)
+        context.metadata["isolate_stopped_after"] = "decomposition"
+        context.debug["isolate_stopped_after"] = "decomposition"
+        LOGGER.info("[isolate] stop after decomposition — downstream isolate substages skipped")
+        LOGGER.info("[isolate] complete %s (decomposition-only)", name)
+        return context
+
+    rgba = decomp.base_rgba
+    alpha = decomp.base_alpha
+    labels = decomp.cc_labels
+    stats = decomp.cc_stats
+    centroids = decomp.cc_centroids
+
     LOGGER.info("[isolate] segmented %s", name)
 
     if not np.any(alpha > cfg.alpha_visibility_threshold):
         raise OSError("segmentation collapse: empty alpha")
 
-    # 3 Component analysis (pre-mask + CC + selection)
-    bin_m = binary_foreground_mask(alpha, cfg)
-    bin_m = morphological_pre_cc(bin_m, cfg.morph_pre_close_size)
-    labels, stats, centroids = analyze_connected_components(bin_m)
     if stats.shape[0] <= 1:
         raise OSError("no foreground components detected")
 
@@ -76,7 +102,7 @@ def process_isolate(
     if cfg.v2_weight_border_contact > 0 and best_feats.border_contact_ratio > 0.02:
         LOGGER.info("[isolate] applied border contact penalty")
 
-    # 4 Artifact cleanup (heuristic CC mask, optionally replaced by SAM v3)
+    # Legacy refinement path (optional SAM v3) — to be superseded by isolate ranking/grouping stages
     masked_alpha = apply_kept_label_to_alpha(alpha, labels, keep)
     v3: dict[str, object] = {"used": False}
     activate_semantic, activation_meta = should_activate_semantic_refinement(stats, alpha, ranked, cfg)
@@ -106,7 +132,6 @@ def process_isolate(
         cfg.alpha_visibility_threshold,
     )
 
-    # 5 Edge refinement + RGBA
     masked_alpha = refine_alpha_soft(masked_alpha, cfg.edge_blur_sigma)
 
     if not np.any(masked_alpha > cfg.alpha_visibility_threshold):
@@ -114,7 +139,6 @@ def process_isolate(
 
     out_rgba = compose_isolated_rgba(rgba, masked_alpha, cfg)
 
-    # 6 Debug output
     write_isolate_debug(
         cfg,
         stem=stem,

@@ -42,6 +42,7 @@ def _ensure_debug_layout() -> None:
     root = WORKSPACE_ROOT / "debug"
     for name in ("isolate", "compose", "shadow", "polish"):
         (root / name).mkdir(parents=True, exist_ok=True)
+    (root / "isolate" / "decomposition").mkdir(parents=True, exist_ok=True)
 
 
 def _thumbnail_mode_active(steps: list[str]) -> bool:
