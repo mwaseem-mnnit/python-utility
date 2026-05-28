@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import cv2
 import numpy as np
 
 from image_utility.pipeline.context import PipelineContext
-from image_utility.pipeline.phases.isolate.decomposition import DecompositionProcessor
+from image_utility.pipeline.phases.isolate.decomposition import DecompositionProcessor, DecompositionResult
+from image_utility.pipeline.phases.isolate.filtering import (
+    FilteringInput,
+    FilteringProcessor,
+    FilteringProposal,
+    load_stop_after_aliases,
+)
 from image_utility.pipeline.phases.isolate.grouping import (
     GroupingCandidateInput,
     GroupingFeatureVector,
     GroupingInput,
     GroupingProcessor,
     GroupingRankingSnapshot,
+    GroupingResult,
 )
 from image_utility.pipeline.phases.isolate.ranking import (
     RankingInput,
@@ -23,7 +29,22 @@ from image_utility.pipeline.phases.isolate.ranking import (
     RankingProcessor,
     RankingResult,
 )
-
+from image_utility.pipeline.phases.isolate.ownership import (
+    OwnedGroup,
+    OwnershipGroupedRegionInput,
+    OwnershipGroupingSnapshot,
+    OwnershipInput,
+    OwnershipProcessor,
+    OwnershipRankingSnapshot,
+    OwnershipResult,
+)
+from image_utility.pipeline.phases.isolate.suppression import (
+    SuppressionGroupedRegionInput,
+    SuppressionGroupingSnapshot,
+    SuppressionInput,
+    SuppressionProcessor,
+    SuppressionRankingSnapshot,
+)
 from .cleanup import (
     morphological_post_open,
     strip_small_fragments,
@@ -38,6 +59,163 @@ from .refinement import compose_isolated_rgba, refine_alpha_soft
 from .semantic.refinement import apply_semantic_refinement, should_activate_semantic_refinement
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _build_filtering_input(decomp: DecompositionResult) -> FilteringInput:
+    """Map decomposition proposals into filtering DTOs only (no decomposition imports in filtering)."""
+
+    props: list[FilteringProposal] = []
+    for c in decomp.semantic_candidates:
+        ar = int(c.area) if int(c.area) > 0 else int(np.count_nonzero(c.mask))
+        props.append(
+            FilteringProposal(
+                candidate_id=int(c.candidate_id),
+                mask=np.ascontiguousarray(c.mask),
+                source=str(c.source),
+                predicted_iou=float(c.predicted_iou),
+                stability_score=float(c.stability_score),
+                area=ar,
+            )
+        )
+    hh, ww = decomp.base_alpha.shape[:2]
+    return FilteringInput(proposals=tuple(props), image_hw=(hh, ww))
+
+
+def _build_ownership_input(group_res: GroupingResult, rank_res: RankingResult | None) -> OwnershipInput:
+    """Copy grouping output into ownership contracts (no ownership→grouping imports)."""
+    regions: list[OwnershipGroupedRegionInput] = []
+    for g in group_res.groups:
+        regions.append(
+            OwnershipGroupedRegionInput(
+                group_id=g.group_id,
+                member_candidate_ids=g.member_candidate_ids,
+                grouped_mask=np.ascontiguousarray(g.grouped_mask),
+                group_confidence=float(g.group_confidence),
+                affinity_breakdown=dict(g.affinity_breakdown),
+                geometry_metadata=dict(g.geometry_metadata),
+            )
+        )
+    hh, ww = regions[0].grouped_mask.shape[:2]
+    rk = rank_res.metadata if rank_res is not None else None
+    ranking_snap = (
+        OwnershipRankingSnapshot(
+            candidate_count=rk.candidate_count,
+            ambiguity_detected=rk.ambiguity_detected,
+            top_confidence=float(rk.top_confidence),
+            second_confidence=float(rk.second_confidence),
+            confidence_separation=float(rk.confidence_separation),
+        )
+        if rk is not None
+        else None
+    )
+    gm = group_res.metadata
+    grouping_snap = OwnershipGroupingSnapshot(
+        group_count=gm.group_count,
+        grouping_ambiguity=gm.grouping_ambiguity,
+        top_group_confidence=float(gm.top_group_confidence),
+        second_group_confidence=float(gm.second_group_confidence),
+    )
+    return OwnershipInput(
+        regions=tuple(regions),
+        image_hw=(hh, ww),
+        ranking_snapshot=ranking_snap,
+        grouping_snapshot=grouping_snap,
+    )
+
+
+def _build_suppression_input_from_ownership(
+    own_res: OwnershipResult,
+    rank_res: RankingResult | None,
+    group_res: GroupingResult,
+) -> SuppressionInput:
+    """
+    Flatten ownership-labelled groups into suppression contracts.
+
+    The ownership label and confidence are stored in affinity_breakdown so that
+    suppression can treat them as additional evidence without importing ownership types.
+    """
+    regions: list[SuppressionGroupedRegionInput] = []
+    for g in own_res.owned_groups:
+        # Forward ownership scores into affinity_breakdown for suppression visibility
+        aff = dict(g.ownership_breakdown)
+        regions.append(
+            SuppressionGroupedRegionInput(
+                group_id=g.group_id,
+                member_candidate_ids=g.member_candidate_ids,
+                grouped_mask=np.ascontiguousarray(g.surviving_mask),  # already clipped
+                group_confidence=float(g.ownership_confidence),
+                affinity_breakdown=aff,
+                geometry_metadata=dict(g.geometry_metadata),
+            )
+        )
+    hh, ww = regions[0].grouped_mask.shape[:2]
+    rk = rank_res.metadata if rank_res is not None else None
+    ranking_snap = (
+        SuppressionRankingSnapshot(
+            candidate_count=rk.candidate_count,
+            ambiguity_detected=rk.ambiguity_detected,
+            top_confidence=float(rk.top_confidence),
+            second_confidence=float(rk.second_confidence),
+            confidence_separation=float(rk.confidence_separation),
+        )
+        if rk is not None
+        else None
+    )
+    gm = group_res.metadata
+    grouping_snap = SuppressionGroupingSnapshot(
+        group_count=gm.group_count,
+        grouping_ambiguity=gm.grouping_ambiguity,
+        top_group_confidence=float(own_res.metadata.global_ownership_confidence),
+        second_group_confidence=float(gm.second_group_confidence),
+    )
+    return SuppressionInput(
+        regions=tuple(regions),
+        image_hw=(hh, ww),
+        ranking_snapshot=ranking_snap,
+        grouping_snapshot=grouping_snap,
+    )
+
+
+def _build_suppression_input(group_res: GroupingResult, rank_res: RankingResult | None) -> SuppressionInput:
+    """Flatten grouping output directly into suppression contracts (ownership-bypass path)."""
+    regions: list[SuppressionGroupedRegionInput] = []
+    for g in group_res.groups:
+        regions.append(
+            SuppressionGroupedRegionInput(
+                group_id=g.group_id,
+                member_candidate_ids=g.member_candidate_ids,
+                grouped_mask=g.grouped_mask,
+                group_confidence=float(g.group_confidence),
+                affinity_breakdown=dict(g.affinity_breakdown),
+                geometry_metadata=dict(g.geometry_metadata),
+            )
+        )
+    hh, ww = regions[0].grouped_mask.shape[:2]
+    rk = rank_res.metadata if rank_res is not None else None
+    ranking_snap = (
+        SuppressionRankingSnapshot(
+            candidate_count=rk.candidate_count,
+            ambiguity_detected=rk.ambiguity_detected,
+            top_confidence=float(rk.top_confidence),
+            second_confidence=float(rk.second_confidence),
+            confidence_separation=float(rk.confidence_separation),
+        )
+        if rk is not None
+        else None
+    )
+    gm = group_res.metadata
+    grouping_snap = SuppressionGroupingSnapshot(
+        group_count=gm.group_count,
+        grouping_ambiguity=gm.grouping_ambiguity,
+        top_group_confidence=float(gm.top_group_confidence),
+        second_group_confidence=float(gm.second_group_confidence),
+    )
+    return SuppressionInput(
+        regions=tuple(regions),
+        image_hw=(hh, ww),
+        ranking_snapshot=ranking_snap,
+        grouping_snapshot=grouping_snap,
+    )
 
 
 def _build_grouping_input(rank_res: RankingResult, base_alpha: np.ndarray) -> GroupingInput:
@@ -134,7 +312,7 @@ def process_isolate(
         "notes": list(decomp.metadata.notes),
     }
 
-    stop_after = os.getenv("ISOLATE_STOP_AFTER_STAGE", "").strip().lower()
+    stop_after = load_stop_after_aliases()
     if stop_after == "decomposition":
         context.current_rgba = np.ascontiguousarray(decomp.base_rgba)
         context.alpha_mask = np.ascontiguousarray(decomp.base_alpha)
@@ -158,17 +336,68 @@ def process_isolate(
     if stats.shape[0] <= 1:
         raise OSError("no foreground components detected")
 
-    proposals = tuple(
-        RankingMaskInput(
-            candidate_id=c.candidate_id,
-            mask=c.mask,
-            source=c.source,
-            predicted_iou=c.predicted_iou,
-            stability_score=c.stability_score,
-            area=c.area,
+    filter_fallback = False
+    filter_res = None
+    try:
+        f_in = _build_filtering_input(decomp)
+        filter_res = FilteringProcessor().run(f_in, rgb, stem)
+    except Exception as exc:
+        LOGGER.warning("[isolate] filtering stage failed (%s); using raw decomposition proposals", exc)
+        filter_fallback = True
+
+    if filter_res is not None:
+        context.metadata["filtering_result"] = filter_res
+        context.debug["filtering"] = {
+            "input_count": filter_res.metadata.input_count,
+            "accepted_count": filter_res.metadata.accepted_count,
+            "rejected_count": filter_res.metadata.rejected_count,
+            "all_rejected_fallback": filter_res.metadata.all_rejected_fallback,
+        }
+
+    if stop_after == "filtering":
+        if filter_fallback or filter_res is None:
+            raise OSError(
+                "stop-after-filtering requires a successful filtering run "
+                "(set IMAGE_UTIL_ISOLATE_STOP_AFTER_STAGE=filtering or ISOLATE_STOP_AFTER_STAGE=filtering)"
+            )
+        sem = np.zeros_like(alpha, dtype=bool)
+        for p in filter_res.accepted:
+            sem = np.logical_or(sem, p.mask)
+        if not np.any(sem):
+            raise OSError("filtering produced empty semantic union — cannot stop after filtering")
+        stop_alpha = np.where(sem, 255, 0).astype(np.uint8)
+        context.current_rgba = np.ascontiguousarray(decomp.base_rgba)
+        context.alpha_mask = np.ascontiguousarray(stop_alpha)
+        context.metadata["isolate_stopped_after"] = "filtering"
+        context.debug["isolate_stopped_after"] = "filtering"
+        LOGGER.info("[isolate] stop after filtering — ranking/grouping/suppression/refinement skipped")
+        LOGGER.info("[isolate] complete %s (filtering-only)", name)
+        return context
+
+    if filter_fallback or filter_res is None:
+        proposals = tuple(
+            RankingMaskInput(
+                candidate_id=c.candidate_id,
+                mask=c.mask,
+                source=c.source,
+                predicted_iou=c.predicted_iou,
+                stability_score=c.stability_score,
+                area=c.area,
+            )
+            for c in decomp.semantic_candidates
         )
-        for c in decomp.semantic_candidates
-    )
+    else:
+        proposals = tuple(
+            RankingMaskInput(
+                candidate_id=p.candidate_id,
+                mask=p.mask,
+                source=p.source,
+                predicted_iou=p.predicted_iou,
+                stability_score=p.stability_score,
+                area=p.area,
+            )
+            for p in filter_res.accepted
+        )
 
     ranking_fallback = False
     rank_res = None
@@ -254,13 +483,146 @@ def process_isolate(
         context.alpha_mask = np.ascontiguousarray(decomp.base_alpha)
         context.metadata["isolate_stopped_after"] = "grouping"
         context.debug["isolate_stopped_after"] = "grouping"
-        LOGGER.info("[isolate] stop after grouping — suppression/refinement skipped")
+        LOGGER.info("[isolate] stop after grouping — ownership/suppression/refinement skipped")
         LOGGER.info("[isolate] complete %s (grouping-only)", name)
+        return context
+
+    # ── Ownership stage (grouping → ownership → suppression) ─────────────────
+    own_res = None
+    ownership_fallback = False
+    if group_res is not None and group_res.groups:
+        try:
+            own_in = _build_ownership_input(group_res, rank_res)
+            own_res = OwnershipProcessor().run(own_in, rgb, stem)
+        except Exception as exc:
+            LOGGER.warning(
+                "[isolate] ownership stage failed (%s); passing grouping output directly to suppression",
+                exc,
+            )
+            ownership_fallback = True
+    else:
+        ownership_fallback = True
+
+    if own_res is not None:
+        context.metadata["ownership_result"] = own_res
+        context.debug["ownership"] = {
+            "product_group_count": own_res.metadata.product_group_count,
+            "support_group_count": own_res.metadata.support_group_count,
+            "packaging_group_count": own_res.metadata.packaging_group_count,
+            "environment_group_count": own_res.metadata.environment_group_count,
+            "uncertain_group_count": own_res.metadata.uncertain_group_count,
+            "support_clipped_group_count": own_res.metadata.support_clipped_group_count,
+            "global_ownership_confidence": round(own_res.metadata.global_ownership_confidence, 4),
+            "primary_product_group_id": own_res.metadata.primary_product_group_id,
+        }
+        context.debug["isolate_ownership_groups"] = [
+            {
+                "group_id": g.group_id,
+                "ownership_label": g.ownership_label,
+                "ownership_confidence": round(g.ownership_confidence, 4),
+                "product_likelihood": round(g.product_likelihood, 4),
+                "support_likelihood": round(g.support_likelihood, 4),
+                "removed_support_px": int(np.count_nonzero(g.removed_support_mask)),
+            }
+            for g in own_res.owned_groups[:12]
+        ]
+
+    if stop_after == "ownership":
+        need_prev = (
+            ranking_fallback or rank_res is None
+            or group_res is None or grouping_fallback
+            or own_res is None or ownership_fallback
+        )
+        if need_prev:
+            raise OSError(
+                "ISOLATE_STOP_AFTER_STAGE=ownership requires successful ranking, grouping, "
+                "and ownership runs"
+            )
+        semantic = own_res.combined_product_mask
+        if not np.any(semantic):
+            raise OSError("ownership produced empty product mask — cannot stop after ownership")
+        stop_alpha = np.where(semantic, 255, 0).astype(np.uint8)
+        context.current_rgba = np.ascontiguousarray(decomp.base_rgba)
+        context.alpha_mask = np.ascontiguousarray(stop_alpha)
+        context.metadata["isolate_stopped_after"] = "ownership"
+        context.debug["isolate_stopped_after"] = "ownership"
+        LOGGER.info("[isolate] stop after ownership — suppression/refinement skipped")
+        LOGGER.info("[isolate] complete %s (ownership-only)", name)
+        return context
+
+    suppress_res = None
+    suppression_fallback = False
+    if own_res is not None and own_res.owned_groups:
+        try:
+            suppress_in = _build_suppression_input_from_ownership(own_res, rank_res, group_res)
+            suppress_res = SuppressionProcessor().run(suppress_in, rgb, stem)
+        except Exception as exc:
+            LOGGER.warning(
+                "[isolate] suppression stage failed (%s); falling back without semantic cleanup",
+                exc,
+            )
+            suppression_fallback = True
+    elif group_res is not None and group_res.groups:
+        # Ownership failed — feed grouping output directly to suppression
+        try:
+            suppress_in = _build_suppression_input(group_res, rank_res)
+            suppress_res = SuppressionProcessor().run(suppress_in, rgb, stem)
+        except Exception as exc:
+            LOGGER.warning(
+                "[isolate] suppression stage failed (%s); falling back without semantic cleanup",
+                exc,
+            )
+            suppression_fallback = True
+    else:
+        suppression_fallback = True
+
+    if suppress_res is not None:
+        context.metadata["suppression_result"] = suppress_res
+        context.debug["suppression"] = {
+            "removed_group_ids": list(suppress_res.metadata.removed_group_ids),
+            "surviving_group_count": suppress_res.metadata.surviving_group_count,
+            "removed_group_count": suppress_res.metadata.removed_group_count,
+            "global_suppression_confidence": round(
+                suppress_res.metadata.global_suppression_confidence,
+                4,
+            ),
+        }
+        context.debug["isolate_suppression_top"] = [
+            {
+                "group_id": g.group_id,
+                "member_candidate_ids": list(g.member_candidate_ids),
+                "suppression_confidence": round(g.suppression_confidence, 4),
+                "removed_region_ids": list(g.removed_region_ids),
+            }
+            for g in suppress_res.surviving_groups[:12]
+        ]
+
+    if stop_after == "suppression":
+        need_group = ranking_fallback or rank_res is None or group_res is None or grouping_fallback
+        if need_group or suppress_res is None or suppression_fallback:
+            raise OSError(
+                "ISOLATE_STOP_AFTER_STAGE=suppression requires successful ranking, grouping, "
+                "and suppression runs"
+            )
+        semantic = suppress_res.combined_survivor_mask
+        if not np.any(semantic):
+            raise OSError("suppression produced empty survivor mask — cannot stop after suppression")
+        stop_alpha = np.where(semantic, 255, 0).astype(np.uint8)
+        context.current_rgba = np.ascontiguousarray(decomp.base_rgba)
+        context.alpha_mask = np.ascontiguousarray(stop_alpha)
+        context.metadata["isolate_stopped_after"] = "suppression"
+        context.debug["isolate_stopped_after"] = "suppression"
+        LOGGER.info("[isolate] stop after suppression — refinement skipped")
+        LOGGER.info("[isolate] complete %s (suppression-only)", name)
         return context
 
     legacy_ranked = None
     keep = 1
-    if group_res is not None and group_res.groups:
+    if suppress_res is not None and np.any(suppress_res.combined_survivor_mask):
+        semantic = suppress_res.combined_survivor_mask
+        masked_alpha = np.where(semantic, 255, 0).astype(np.uint8)
+        keep = _cc_label_best_overlap(labels, stats, semantic)
+    elif group_res is not None and group_res.groups:
         top_g = group_res.groups[0]
         LOGGER.debug(
             "[debug-group] group_mask dtype=%s shape=%s nonzero=%d unique=%s",
@@ -273,7 +635,7 @@ def process_isolate(
         keep = _cc_label_best_overlap(labels, stats, top_g.grouped_mask)
     elif not ranking_fallback and rank_res is not None:
         top = rank_res.ranked[0]
-        masked_alpha = np.where(top.mask, alpha, 0).astype(np.uint8)
+        masked_alpha = np.where(top.mask, 255, 0).astype(np.uint8)
         keep = _cc_label_best_overlap(labels, stats, top.mask)
     else:
         keep, legacy_ranked = select_best_component(labels, stats, centroids, cfg)
@@ -293,6 +655,15 @@ def process_isolate(
         LOGGER.info("[isolate] selected label=%d area=%d", keep, sel_area)
         if cfg.v2_weight_border_contact > 0 and best_feats.border_contact_ratio > 0.02:
             LOGGER.info("[isolate] applied border contact penalty")
+    elif suppress_res is not None and suppress_res.surviving_groups:
+        sg = suppress_res.surviving_groups[0]
+        LOGGER.info(
+            "[isolate] suppression-primary groups=%d top_group_id=%d confidence=%.2f meta=%.2f",
+            len(suppress_res.surviving_groups),
+            sg.group_id,
+            sg.suppression_confidence,
+            suppress_res.metadata.global_suppression_confidence,
+        )
     elif group_res is not None and group_res.groups:
         top_g = group_res.groups[0]
         LOGGER.info(
@@ -335,7 +706,12 @@ def process_isolate(
             v3["skipped"] = True
     elif cfg.semantic_refinement_enabled:
         v3["skipped"] = True
-        v3["reason"] = "ranking_primary" if group_res is None else "grouping_primary"
+        if suppress_res is not None and np.any(suppress_res.combined_survivor_mask):
+            v3["reason"] = "suppression_primary"
+        elif group_res is not None and group_res.groups:
+            v3["reason"] = "grouping_primary"
+        else:
+            v3["reason"] = "ranking_primary"
 
     masked_alpha, bin_frag, clean_bin = strip_small_fragments(masked_alpha, cfg)
     masked_alpha = morphological_post_open(
@@ -404,6 +780,13 @@ def process_isolate(
             }
             for f in legacy_ranked
         ]
+    elif suppress_res is not None and suppress_res.surviving_groups:
+        context.debug["isolate_selection_scores"] = {}
+        context.debug["isolate_selected_area"] = sel_area
+        context.debug["isolate_selected_confidence"] = round(
+            float(suppress_res.metadata.global_suppression_confidence), 4
+        )
+        context.debug["isolate_v2_ranked"] = []
     elif rank_res is not None:
         context.debug["isolate_selection_scores"] = {}
         context.debug["isolate_selected_area"] = sel_area

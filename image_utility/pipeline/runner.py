@@ -43,8 +43,10 @@ def _ensure_debug_layout() -> None:
     for name in ("isolate", "compose", "shadow", "polish"):
         (root / name).mkdir(parents=True, exist_ok=True)
     (root / "isolate" / "decomposition").mkdir(parents=True, exist_ok=True)
+    (root / "isolate" / "filtering").mkdir(parents=True, exist_ok=True)
     (root / "isolate" / "ranking").mkdir(parents=True, exist_ok=True)
     (root / "isolate" / "grouping").mkdir(parents=True, exist_ok=True)
+    (root / "isolate" / "suppression").mkdir(parents=True, exist_ok=True)
 
 
 def _thumbnail_mode_active(steps: list[str]) -> bool:
