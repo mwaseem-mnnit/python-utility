@@ -46,6 +46,7 @@ def _ensure_debug_layout() -> None:
     (root / "isolate" / "filtering").mkdir(parents=True, exist_ok=True)
     (root / "isolate" / "ranking").mkdir(parents=True, exist_ok=True)
     (root / "isolate" / "grouping").mkdir(parents=True, exist_ok=True)
+    (root / "isolate" / "ownership").mkdir(parents=True, exist_ok=True)
     (root / "isolate" / "suppression").mkdir(parents=True, exist_ok=True)
 
 
@@ -207,7 +208,9 @@ def run_pipeline(*, steps: list[str] | None = None) -> PipelineRunSummary:
             skipped_count += 1
             continue
 
-        if _write_final_output(ctx, logger):
+        if ctx.metadata.get("compress_exported"):
+            ok_count += 1
+        elif _write_final_output(ctx, logger):
             ok_count += 1
         else:
             skipped_count += 1

@@ -1,6 +1,7 @@
-"""Compress job package."""
+"""Compress/Export job package."""
 
-from .phase import THUMBNAIL_SIZE, WEBP_SIZE, CompressPhase
+from .config import CompressConfig, load_compress_config
+from .phase import CompressPhase
 from .processor import run
 
-__all__ = ["run", "CompressPhase", "WEBP_SIZE", "THUMBNAIL_SIZE"]
+__all__ = ["run", "CompressPhase", "CompressConfig", "load_compress_config"]

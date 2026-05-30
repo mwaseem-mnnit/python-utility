@@ -134,6 +134,8 @@ def write_filtering_debug(
             "accepted_count": result.metadata.accepted_count,
             "rejected_count": result.metadata.rejected_count,
             "all_rejected_fallback": result.metadata.all_rejected_fallback,
+            "dedup_removed_count": result.metadata.dedup_removed_count,
+            "post_dedup_count": result.metadata.post_dedup_count,
         },
         "proposals": scored_payload,
         "accepted_ids": sorted({p.candidate_id for p in result.accepted}),

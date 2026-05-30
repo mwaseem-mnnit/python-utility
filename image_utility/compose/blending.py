@@ -48,6 +48,19 @@ def blend_rgba_on_canvas(
     fg = foreground_rgba[src_y0:src_y1, src_x0:src_x1].astype(np.float32)
     alpha = fg[:, :, 3:4] / 255.0
     rgb = fg[:, :, :3]
+
+    # Safety: pixels with high alpha but near-black RGB are segmentation errors
+    # (dark store background incorrectly classified as foreground by rembg).
+    # Replace their RGB with the canvas background color before blending.
+    # Threshold 30: real product metallic dark areas are typically > 30;
+    # background bleed-through is near-zero (0-15).
+    dark_threshold = 30.0
+    is_dark = np.all(rgb < dark_threshold, axis=2, keepdims=True)
+    is_opaque = alpha > 0.3
+    bad_pixels = is_dark & is_opaque
+    bg_fill = np.array([[[br, bg, bb]]], dtype=np.float32)
+    rgb = np.where(bad_pixels, bg_fill, rgb)
+
     dst = canvas[dst_y0:dst_y1, dst_x0:dst_x1]
     dst[:] = rgb * alpha + dst * (1.0 - alpha)
 

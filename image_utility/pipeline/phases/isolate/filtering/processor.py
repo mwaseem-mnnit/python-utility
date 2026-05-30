@@ -16,6 +16,7 @@ from .contracts import (
     ScoredFilteringProposal,
 )
 from .debug import write_filtering_debug
+from .dedup import deduplicate_proposals
 from .scoring import score_proposal
 
 LOGGER = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ class FilteringProcessor:
                 accepted_count=0,
                 rejected_count=0,
                 all_rejected_fallback=False,
+                dedup_removed_count=0,
+                post_dedup_count=0,
             )
             result = FilteringResult(
                 accepted=(),
@@ -75,16 +78,27 @@ class FilteringProcessor:
             write_filtering_debug(self._cfg, stem=stem, rgb=rgb, inp=inp, result=result)
             return result
 
-        LOGGER.info("[filtering] analyzed proposals=%d", len(inp.proposals))
+        original_count = len(inp.proposals)
+        LOGGER.info("[filtering] input proposals=%d", original_count)
+
+        # Step 1: deduplicate near-identical masks before scoring
+        proposals, dedup_removed = deduplicate_proposals(inp.proposals, self._cfg)
+        post_dedup_count = len(proposals)
+
+        LOGGER.info("[filtering] post-dedup proposals=%d (removed %d duplicates)", post_dedup_count, dedup_removed)
+
+        # Step 2: score each surviving proposal
         scores_list: list[FilteringScore] = []
-        for p in inp.proposals:
+        for p in proposals:
             scores_list.append(score_proposal(p, rgb, cfg=self._cfg))
 
         scores_t = tuple(scores_list)
         scored = tuple(
             ScoredFilteringProposal(proposal=p, filtering_score=s)
-            for p, s in zip(inp.proposals, scores_t)
+            for p, s in zip(proposals, scores_t)
         )
+
+        # Step 3: accept/reject gate
         acc, rej, fallback = _accept_and_reject(scored, self._cfg)
 
         if fallback:
@@ -101,10 +115,12 @@ class FilteringProcessor:
             )
 
         meta = FilteringMetadata(
-            input_count=len(inp.proposals),
+            input_count=original_count,
             accepted_count=len(acc),
             rejected_count=len(rej),
             all_rejected_fallback=fallback,
+            dedup_removed_count=dedup_removed,
+            post_dedup_count=post_dedup_count,
         )
         result = FilteringResult(accepted=acc, rejected=rej, scored=scored, metadata=meta)
         write_filtering_debug(self._cfg, stem=stem, rgb=rgb, inp=inp, result=result)

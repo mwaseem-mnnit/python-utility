@@ -80,6 +80,12 @@ def process_polish(
 
     work = _preserve_near_white(before, work, cfg.white_preserve_threshold)
 
+    # Also protect near-white background that polish may have darkened slightly:
+    # any pixel that was white (>245) in the pre-polish image but is now darker
+    # should be restored to white (it's background, not product).
+    bg_mask = np.all(before >= 245, axis=2)
+    work[bg_mask] = before[bg_mask]
+
     write_polish_debug(
         cfg,
         stem=context.input_path.stem,

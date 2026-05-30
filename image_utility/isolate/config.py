@@ -134,6 +134,25 @@ class IsolateConfig:
     debug_color_seed: int
     """PRNG seed for deterministic pseudo-colors in component viz."""
 
+    # --- Skin / hand removal ---
+    skin_removal_enabled: bool
+    """When True, detect and remove hand/finger skin from the product mask."""
+
+    skin_min_ratio: float
+    """Minimum fraction of fg that must be skin before removal activates (0–1)."""
+
+    skin_max_ratio: float
+    """If skin exceeds this fraction, product may be skin-toned; skip removal."""
+
+    skin_min_blob_pct: float
+    """Minimum skin blob size as fraction of fg area to consider for removal."""
+
+    skin_border_margin: float
+    """Fraction of image dimension used as border proximity threshold."""
+
+    skin_centroid_margin: float
+    """Normalized distance from fg center beyond which a blob is 'peripheral'."""
+
     # --- Isolate v3: optional SAM semantic refinement (MobileSAM) ---
     semantic_refinement_enabled: bool
     """When True and checkpoint+deps exist, SAM may refine ambiguous multi-region cases."""
@@ -275,6 +294,12 @@ def load_isolate_config() -> IsolateConfig:
         debug_enabled=_bool_env("IMAGE_UTIL_ISOLATE_DEBUG"),
         debug_overlay_blend=_float_env("IMAGE_UTIL_ISOLATE_DEBUG_BLEND", 0.35),
         debug_color_seed=_int_env("IMAGE_UTIL_ISOLATE_DEBUG_COLOR_SEED", 42),
+        skin_removal_enabled=_bool_env("IMAGE_UTIL_ISOLATE_SKIN_REMOVAL"),
+        skin_min_ratio=_float_env("IMAGE_UTIL_ISOLATE_SKIN_MIN_RATIO", 0.05),
+        skin_max_ratio=_float_env("IMAGE_UTIL_ISOLATE_SKIN_MAX_RATIO", 0.85),
+        skin_min_blob_pct=_float_env("IMAGE_UTIL_ISOLATE_SKIN_MIN_BLOB_PCT", 0.02),
+        skin_border_margin=_float_env("IMAGE_UTIL_ISOLATE_SKIN_BORDER_MARGIN", 0.05),
+        skin_centroid_margin=_float_env("IMAGE_UTIL_ISOLATE_SKIN_CENTROID_MARGIN", 0.30),
         semantic_refinement_enabled=_bool_env("IMAGE_UTIL_ISOLATE_SEMANTIC"),
         semantic_sam_checkpoint=_str_env_optional("IMAGE_UTIL_ISOLATE_SAM_CHECKPOINT"),
         semantic_sam_use_gpu=_bool_env("IMAGE_UTIL_ISOLATE_SAM_GPU"),

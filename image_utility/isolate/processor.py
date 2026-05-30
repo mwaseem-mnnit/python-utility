@@ -352,6 +352,8 @@ def process_isolate(
             "accepted_count": filter_res.metadata.accepted_count,
             "rejected_count": filter_res.metadata.rejected_count,
             "all_rejected_fallback": filter_res.metadata.all_rejected_fallback,
+            "dedup_removed_count": filter_res.metadata.dedup_removed_count,
+            "post_dedup_count": filter_res.metadata.post_dedup_count,
         }
 
     if stop_after == "filtering":
@@ -712,6 +714,13 @@ def process_isolate(
             v3["reason"] = "grouping_primary"
         else:
             v3["reason"] = "ranking_primary"
+
+    # ── Skin / hand removal (color-based, before fragment cleanup) ────────────
+    skin_meta: dict = {"skin_removal_applied": False}
+    if cfg.skin_removal_enabled:
+        from .skin_removal import detect_and_remove_skin
+        masked_alpha, skin_meta = detect_and_remove_skin(rgb, masked_alpha, cfg)
+        context.debug["isolate_skin_removal"] = skin_meta
 
     masked_alpha, bin_frag, clean_bin = strip_small_fragments(masked_alpha, cfg)
     masked_alpha = morphological_post_open(

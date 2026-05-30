@@ -92,6 +92,13 @@ def score_grouped_region(
     internal = float(region.affinity_breakdown.get("internal_pair_affinity_mean", 1.0))
     loose_aff = float(max(0.0, min(1.0, (0.55 - internal) / 0.55)))
 
+    # Ownership label penalty: non-product labels increase artifact likelihood.
+    # ownership_label encoding: 1.0=product, 2.0=support_object, 3.0=packaging,
+    # 4.0=environment, 5.0=uncertain.  Absent => 0.0 (no penalty).
+    _OWN_PENALTY_MAP = {1.0: 0.0, 2.0: 1.0, 3.0: 0.15, 4.0: 0.85, 5.0: 0.40}
+    own_label_id = float(region.affinity_breakdown.get("ownership_label", 0.0))
+    own_label_penalty = float(_OWN_PENALTY_MAP.get(own_label_id, 0.0))
+
     weighted = (
         cfg.w_border * border
         + cfg.w_elongation * elong_n
@@ -100,6 +107,7 @@ def score_grouped_region(
         + cfg.w_bbox_fill_anomaly * sparse_penalty
         + cfg.w_weak_semantic * weak_sem
         + cfg.w_loose_affinity * loose_aff
+        + cfg.w_ownership_label * own_label_penalty
     )
     wsum = (
         cfg.w_border
@@ -109,6 +117,7 @@ def score_grouped_region(
         + cfg.w_bbox_fill_anomaly
         + cfg.w_weak_semantic
         + cfg.w_loose_affinity
+        + cfg.w_ownership_label
     )
     likelihood = weighted / max(wsum, eps)
     likelihood = float(max(0.0, min(1.0, likelihood)))
@@ -124,6 +133,7 @@ def score_grouped_region(
         "sparse_bbox_penalty": sparse_penalty,
         "weak_semantic_penalty": weak_sem,
         "loose_affinity_penalty": loose_aff,
+        "ownership_label_penalty": own_label_penalty,
         "weighted_artifact_likelihood": likelihood,
     }
     return SuppressionGroupScore(

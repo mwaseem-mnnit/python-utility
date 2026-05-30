@@ -39,6 +39,7 @@ class SuppressionConfig:
     w_secondary_blob: float
     w_thin_bridge: float
     w_bbox_fill_anomaly: float
+    w_ownership_label: float
     elongation_critical: float
     secondary_blob_critical: float
     removal_likelihood_threshold: float
@@ -59,6 +60,7 @@ def load_suppression_config() -> SuppressionConfig:
         w_secondary_blob=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_W_SECOND_BLOB", 0.95),
         w_thin_bridge=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_W_BRIDGE", 0.7),
         w_bbox_fill_anomaly=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_W_BBOX_FILL", 0.55),
+        w_ownership_label=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_W_OWN_LABEL", 0.90),
         elongation_critical=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_ELONG_CRIT", 6.5),
         secondary_blob_critical=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_SECOND_BLOB_CRIT", 0.38),
         removal_likelihood_threshold=_float_env("IMAGE_UTIL_ISOLATE_SUPPRESS_REMOVE_THRESH", 0.62),

@@ -47,6 +47,10 @@ class FilteringMetadata:
     accepted_count: int
     rejected_count: int
     all_rejected_fallback: bool
+    dedup_removed_count: int = 0
+    """Number of near-duplicate proposals collapsed before scoring."""
+    post_dedup_count: int = 0
+    """Proposals remaining after deduplication (equals input_count if dedup disabled)."""
 
 
 @dataclass(frozen=True)

@@ -63,6 +63,12 @@ def _convex_solidity(mask: BoolMask) -> float:
     return float(a / ha)
 
 
+def _elongation_from_bbox(bw: int, bh: int) -> float:
+    """max(w,h) / min(w,h); 1.0 = square."""
+    bw, bh = max(bw, 1), max(bh, 1)
+    return float(max(bw, bh) / min(bw, bh))
+
+
 def _detail_focus_on_crop(rgb: UInt8RGB, mask: BoolMask, bbox: tuple[int, int, int, int]) -> tuple[float, float]:
     """Return (normalized detail density, normalized focus score) ∈ [0,1] approx."""
 
@@ -108,56 +114,119 @@ def score_proposal(
     """Lightweight deterministic scoring — high rejection_likelihood ⇒ scene-like / invalid."""
 
     hh, ww = p.mask.shape[:2]
-    denom = float(max(hh * ww, cfg.eps))
+    image_area = float(max(hh * ww, cfg.eps))
     area = float(max(p.area, int(np.count_nonzero(p.mask)), 1))
-    coverage = float(area / denom)
+    coverage = float(area / image_area)
     border = _border_contact_ratio(p.mask, cfg.eps)
     bbox = _bbox_from_mask(p.mask)
-    bbox_fill = float(area / max(bbox[2] * bbox[3], cfg.eps))
+    bw, bh = bbox[2], bbox[3]
+    bbox_fill = float(area / max(bw * bh, cfg.eps))
+    elongation = _elongation_from_bbox(bw, bh)
 
     detail, focus = _detail_focus_on_crop(rgb, p.mask, bbox)
     blob2 = _secondary_blob_ratio(p.mask)
     solidity = _convex_solidity(p.mask)
     stab = _stability_signal(p)
 
-    # Coverage slab (giant slabs)
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 1: Coverage slab (giant environment slabs)
+    # ──────────────────────────────────────────────────────────────────────
     slab_cov = float(
         max(0.0, min(1.0, (coverage - cfg.max_image_ratio) / max(cfg.eps, 1.0 - cfg.max_image_ratio)))
     )
 
-    # Low detail blur / bokeh
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 2: Soft coverage ramp (starts well before the slab hard-gate)
+    # ──────────────────────────────────────────────────────────────────────
+    coverage_soft = float(
+        max(0.0, min(1.0, (coverage - cfg.coverage_soft_start)
+                      / max(cfg.max_image_ratio - cfg.coverage_soft_start, cfg.eps)))
+    )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 3: Low detail / blur / bokeh
+    # ──────────────────────────────────────────────────────────────────────
     deficit_detail = float(max(0.0, (cfg.min_detail_density - detail) / max(cfg.min_detail_density, cfg.eps)))
     deficit_focus = float(max(0.0, (cfg.min_focus_score - focus) / max(cfg.min_focus_score, cfg.eps)))
 
-    # Border-only dangerous when fused with slab / blur
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 4: Border-weighted (dangerous when fused with slab / blur)
+    # ──────────────────────────────────────────────────────────────────────
     border_weighted = float(border * cfg.border_penalty)
 
-    # Fragment unstable proposal
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 5: Fragment / unstable proposal
+    # ──────────────────────────────────────────────────────────────────────
     frag = float(blob2 / max(cfg.max_blob_ratio, cfg.eps)) if blob2 >= cfg.eps else 0.0
     frag_pen = float(max(0.0, min(1.0, frag)))
 
-    # Amorphous / diffuse blobs: low convex solidity + slab-like coverage cues
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 6: Amorphous / diffuse
+    # ──────────────────────────────────────────────────────────────────────
     amorph_pen = float(max(0.0, min(1.0, (0.92 - solidity) / 0.5)))
     diffuse_sl = float(min(1.0, slab_cov * max(deficit_detail, deficit_focus) * bbox_fill))
 
     stability_deficit = float(max(0.0, min(1.0, (0.45 - stab) / 0.45)))
 
-    # Weighted rejection fusion (explainable coefficients baked into terms above)
-    terms = np.array(
-        [
-            slab_cov,
-            border_weighted * (0.5 * slab_cov + 0.5 * deficit_detail),
-            deficit_detail,
-            deficit_focus,
-            frag_pen,
-            diffuse_sl,
-            amorph_pen * deficit_detail,
-            stability_deficit * frag_pen,
-        ],
-        dtype=np.float64,
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 7: Tiny area — noise or micro-fragments
+    # ──────────────────────────────────────────────────────────────────────
+    tiny_px = float(max(0.0, min(1.0, 1.0 - area / max(cfg.min_area_pixels, 1))))
+    tiny_ratio = float(max(0.0, min(1.0, 1.0 - coverage / max(cfg.min_area_ratio, cfg.eps))))
+    tiny_penalty = float(max(tiny_px, tiny_ratio))
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 8: Peripheral organic compound
+    #         Border-touching + elongated + organic → likely hand / support
+    # ──────────────────────────────────────────────────────────────────────
+    is_peripheral = float(border >= cfg.peripheral_border_min)
+    elong_excess = float(
+        max(0.0, min(1.0, (elongation - 1.0) / max(cfg.peripheral_elongation_min - 1.0, cfg.eps)))
     )
-    w = np.array([1.35, 1.2, 1.05, 0.95, 1.25, 1.35, 0.85], dtype=np.float64)
-    fused = float(np.dot(terms[: len(w)], w) / np.sum(w))
+    low_fill = float(max(0.0, min(1.0, (0.65 - bbox_fill) / 0.35)))
+    # Only fires when border contact + elongation + sparsecompound all contribute
+    peripheral_organic = float(is_peripheral * max(elong_excess, low_fill) * min(1.0, border * 30.0))
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Term 9: Low SAM confidence  (proposals with poor model confidence)
+    # ──────────────────────────────────────────────────────────────────────
+    sam_deficit = float(
+        max(0.0, min(1.0, (cfg.min_sam_stability - stab) / max(cfg.min_sam_stability, cfg.eps)))
+    )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Weighted rejection fusion (hybrid: mean + max-penalty boost)
+    #
+    # Pure weighted-mean dilutes strong signals when many terms are zero.
+    # We add a max-penalty boost: the single strongest weighted term
+    # contributes directly, so one decisive signal can cross the threshold.
+    # ──────────────────────────────────────────────────────────────────────
+    terms = [
+        (slab_cov,                                                    1.35),
+        (border_weighted * (0.5 * slab_cov + 0.5 * deficit_detail),   1.20),
+        (deficit_detail,                                              1.05),
+        (deficit_focus,                                               0.95),
+        (frag_pen,                                                    1.25),
+        (diffuse_sl,                                                  1.35),
+        (amorph_pen * deficit_detail,                                 0.85),
+        (stability_deficit * frag_pen,                                0.75),
+        (coverage_soft,                                               cfg.coverage_penalty_weight),
+        (tiny_penalty,                                                1.10),
+        (peripheral_organic,                                          cfg.peripheral_penalty_weight),
+        (sam_deficit,                                                 cfg.sam_confidence_penalty_weight),
+    ]
+
+    t_vals = np.array([t[0] for t in terms], dtype=np.float64)
+    t_wgts = np.array([t[1] for t in terms], dtype=np.float64)
+    wsum = float(np.sum(t_wgts))
+    # Base: weighted mean across all terms
+    base_mean = float(np.dot(t_vals, t_wgts) / max(wsum, cfg.eps))
+    # Boost: strongest individual weighted term (value × weight / max_weight)
+    max_w = float(np.max(t_wgts)) + cfg.eps
+    weighted_terms = t_vals * t_wgts / max_w
+    max_penalty = float(np.max(weighted_terms))
+    # Blend: 40% mean + 60% max-penalty (so one strong signal dominates)
+    fused = float(0.40 * base_mean + 0.60 * max_penalty)
     fused = float(max(0.0, min(1.0, fused)))
 
     rej = fused
@@ -166,6 +235,7 @@ def score_proposal(
     bd = {
         "coverage_ratio": coverage,
         "border_contact_ratio": border,
+        "elongation": elongation,
         "detail_density_norm": detail,
         "focus_score_norm": focus,
         "bbox_fill_ratio": bbox_fill,
@@ -173,11 +243,15 @@ def score_proposal(
         "contour_convex_solidity": solidity,
         "proposal_stability": stab,
         "slab_cov_penalty": slab_cov,
+        "coverage_soft_penalty": coverage_soft,
         "deficit_detail": deficit_detail,
         "deficit_focus": deficit_focus,
         "fragment_penalty": frag_pen,
         "diffuse_scene_penalty": diffuse_sl,
         "stability_frag_penalty": stability_deficit * frag_pen,
+        "tiny_penalty": tiny_penalty,
+        "peripheral_organic_penalty": peripheral_organic,
+        "sam_deficit_penalty": sam_deficit,
     }
     return FilteringScore(
         validity_score=val,
