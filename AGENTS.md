@@ -8,23 +8,34 @@
 
 ---
 
-## Architecture: Phase-Driven Pipeline
+## Architecture: Phase-Driven Pipeline (v2.0)
 
-### Five Sequential Phases
+### Pre-Pipeline + Five Sequential Phases
 
 | Phase | Responsibility | Input | Output | Key Rule |
 |-------|------------------|-------|--------|----------|
-| **isolate** | Segment product from background using rembg + CC analysis | RGB image | RGBA + alpha mask | No resize, no color alteration |
+| **classify** | Scene classification (white bg / hand / clean) | RGB image | SceneClassification | No image modification, < 100ms |
+| **isolate** | Segment product from background (with pre-isolation inpainting) | RGB image | RGBA + alpha mask | No resize, no color alteration |
 | **compose** | Place isolated product on white 2000×2000 canvas | RGBA | Composed RGB on white BG | No product appearance changes |
 | **shadow** | Add subtle grounding shadow | Composed RGB | RGB with shadow | Subtle only, no dramatic shadows |
-| **polish** | Selective contrast/sharpness enhancement | RGB | Enhanced RGB | Subtle enhancement, no HDR-like effects |
+| **polish** | Selective contrast/sharpness enhancement (+ resize in enhance-only) | RGB | Enhanced RGB | Subtle enhancement, no HDR-like effects |
 | **compress** | Export multi-format assets (WebP, JPEG, thumbnails) | Final RGB | WebP/JPEG files | Compression only here, no quality loss |
+
+### Pipeline Paths (v2.0)
+
+| Path | Triggered By | Phases |
+|------|-------------|--------|
+| **Full Pipeline** | `clean_product` or `hand_held` | classify → isolate → compose → shadow → polish → compress |
+| **Enhance-Only** | `already_white` | classify → polish (with resize) → compress |
 
 **Hard Rules**:
 1. Phases MUST remain independent & reorderable
 2. Compression happens ONLY in compress phase
 3. Segmentation (rembg/SAM) is replaceable without affecting downstream phases
 4. Context mutations propagate forward (immutable per-phase outputs NOT required)
+5. Scene classification MUST execute before pipeline routing (v2.0)
+6. Hand inpainting MUST happen BEFORE segmentation, never after (v2.0)
+7. Only remove what is confidently hand/skin — default is KEEP (v2.0)
 
 ### Core Design Patterns
 
