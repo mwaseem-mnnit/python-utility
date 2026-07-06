@@ -21,6 +21,7 @@ JOB_DRY_RUN = "dry-run"
 JOB_PARSE_CSV = "parse-csv"
 JOB_RUN_FLOW = "run-flow"
 JOB_CREATE_COLLECTIONS = "create-collections"
+JOB_ASSIGN_COLLECTION_TO_PRODUCT = "assign-collection-to-product"
 JOB_COLLECTION_SYNC = "collection-sync"
 JOB_PRODUCT_SYNC = "product-sync"
 JOB_MEDIA_UPLOAD = "media-upload"
@@ -88,6 +89,7 @@ class WixConfig:
     match_threshold: float
     collection_title_column: str
     collection_page_size: int
+    product_page_size: int
     collection_query_visible_only: bool
     collection_create_enabled: bool
     collection_visible: bool
@@ -118,6 +120,7 @@ def load_wix_config() -> WixConfig:
         match_threshold=_float_env("WIX_MATCH_THRESHOLD", 0.86),
         collection_title_column=os.getenv("WIX_COLLECTION_TITLE_COLUMN", "").strip(),
         collection_page_size=_int_env("WIX_COLLECTION_PAGE_SIZE", 100),
+        product_page_size=_int_env("WIX_PRODUCT_PAGE_SIZE", 100),
         collection_query_visible_only=_bool_env("WIX_COLLECTION_QUERY_VISIBLE_ONLY", default=True),
         collection_create_enabled=_bool_env("WIX_COLLECTION_CREATE_ENABLED", default=False),
         collection_visible=_bool_env("WIX_COLLECTION_VISIBLE", default=False),

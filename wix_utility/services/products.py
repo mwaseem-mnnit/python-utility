@@ -45,3 +45,57 @@ class ProductService:
             "/stores/v1/products",
             json_payload={"product": product_payload(draft)},
         )
+
+    def query_products_page(
+        self,
+        *,
+        limit: int,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Query one page of Wix Stores products."""
+        paging: dict[str, Any] = {"limit": limit, "offset": offset}
+        query: dict[str, Any] = {"paging": paging}
+
+        return self.client.post(
+            "/stores/v1/products/query",
+            json_payload={"query": query},
+        )
+
+    def list_products(self, *, page_size: int) -> list[dict[str, Any]]:
+        """Read all product pages from Wix Stores Catalog v1."""
+        products: list[dict[str, Any]] = []
+        offset: int = 0
+        while True:
+            page = self.query_products_page(
+                limit=page_size,
+                offset=offset,
+            )
+            page_items = _extract_products(page)
+            if len(page_items) == 0:
+                break
+            products.extend(page_items)
+            offset = _compute_next_offset(page)
+
+        return products
+
+
+def _extract_products(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = (
+        payload.get("products"),
+        payload.get("items"),
+        payload.get("data", {}).get("products") if isinstance(payload.get("data"), dict) else None,
+        payload.get("data", {}).get("items") if isinstance(payload.get("data"), dict) else None,
+    )
+    for value in candidates:
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _compute_next_offset(payload: dict[str, Any]) -> int:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return 0
+    current_offset = int(metadata.get("offset") or 0)
+    response_page_size = int(metadata.get("items") or 0)
+    return current_offset + response_page_size

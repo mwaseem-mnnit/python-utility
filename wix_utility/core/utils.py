@@ -27,3 +27,19 @@ def slugify(value: str) -> str:
     lowered = value.casefold()
     slug = re.sub(r"[^a-z0-9]+", "-", lowered)
     return slug.strip("-")
+
+
+def dict_from_list_by_key(items: list[dict[str, Any]], key_field: str) -> dict[str, dict[str, Any]]:
+    """Create a dictionary mapping key field value to item dict for each item in the list.
+    
+    If key field is missing or empty, the item is skipped.
+    """
+    result: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key_value = item.get(key_field)
+        if key_value is None:
+            continue
+        key_str = str(key_value).strip()
+        if key_str:
+            result[key_str] = item
+    return result
