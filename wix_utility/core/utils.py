@@ -43,3 +43,11 @@ def dict_from_list_by_key(items: list[dict[str, Any]], key_field: str) -> dict[s
         if key_str:
             result[key_str] = item
     return result
+
+def _compute_next_offset(payload: dict[str, Any]) -> int:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return 0
+    current_offset = int(metadata.get("offset") or 0)
+    response_page_size = int(metadata.get("items") or 0)
+    return current_offset + response_page_size

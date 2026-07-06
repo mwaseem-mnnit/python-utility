@@ -6,6 +6,7 @@ from typing import Any
 
 from wix_utility.catalog.models import CollectionDraft
 from wix_utility.clients.wix_api import WixApiClient
+from wix_utility.core.utils import _compute_next_offset
 
 
 def collection_payload(draft: CollectionDraft) -> dict[str, Any]:
@@ -39,15 +40,12 @@ class CollectionService:
         self,
         *,
         limit: int,
-        cursor: str = "",
+        offset: int = 0,
         visible_only: bool = True,
     ) -> dict[str, Any]:
         """Query one page of Wix Stores collections."""
-        cursor_paging: dict[str, Any] = {"limit": limit}
-        if cursor:
-            cursor_paging["cursor"] = cursor
-
-        query: dict[str, Any] = {"cursorPaging": cursor_paging}
+        paging: dict[str, Any] = {"limit": limit, "offset": offset}
+        query: dict[str, Any] = {"paging": paging}
         if visible_only:
             query["filter"] = "{\"visible\": true}"
 
@@ -59,26 +57,18 @@ class CollectionService:
     def list_collections(self, *, page_size: int, visible_only: bool = True) -> list[dict[str, Any]]:
         """Read all collection pages from Wix Stores Catalog v1."""
         collections: list[dict[str, Any]] = []
-        cursor = ""
-        seen_cursors: set[str] = set()
-
+        offset: int = 0
         while True:
             page = self.query_collections_page(
                 limit=page_size,
-                cursor=cursor,
-                visible_only=visible_only,
+                offset=offset,
+                visible_only=visible_only
             )
             page_items = _extract_collections(page)
+            if len(page_items) == 0:
+                break
             collections.extend(page_items)
-
-            next_cursor = _extract_next_cursor(page)
-            if not next_cursor:
-                break
-            if next_cursor in seen_cursors:
-                break
-            seen_cursors.add(next_cursor)
-            cursor = next_cursor
-
+            offset = _compute_next_offset(page)
         return collections
 
 

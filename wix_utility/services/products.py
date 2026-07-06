@@ -6,6 +6,7 @@ from typing import Any
 
 from wix_utility.catalog.models import ProductDraft
 from wix_utility.clients.wix_api import WixApiClient
+from wix_utility.core.utils import _compute_next_offset
 
 
 def product_payload(draft: ProductDraft) -> dict[str, Any]:
@@ -90,12 +91,3 @@ def _extract_products(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(value, list):
             return [item for item in value if isinstance(item, dict)]
     return []
-
-
-def _compute_next_offset(payload: dict[str, Any]) -> int:
-    metadata = payload.get("metadata")
-    if not isinstance(metadata, dict):
-        return 0
-    current_offset = int(metadata.get("offset") or 0)
-    response_page_size = int(metadata.get("items") or 0)
-    return current_offset + response_page_size
