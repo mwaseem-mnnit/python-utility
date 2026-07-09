@@ -116,24 +116,24 @@ class AssignCollectionToProductJob(WixJob):
         failed_matches = 0
 
         for index, record in enumerate(csv_records, start=2):
-            handle_id = str(record.get("handleId") or "").strip()
+            product_slug = str(record.get("product_slug") or "").strip()
             collection_slug = str(record.get("collection_slug") or "").strip()
 
-            if not handle_id or not collection_slug:
+            if not product_slug or not collection_slug:
                 self.logger.warning(
-                    "Row %s: skipping - missing handleId or collection_slug",
+                    "Row %s: skipping - missing product_slug or collection_slug",
                     index,
                 )
                 skipped += 1
                 continue
 
             # Look up product by slug (handleId maps to product slug)
-            product = product_by_slug.get(handle_id)
+            product = product_by_slug.get(product_slug)
             if not product:
                 self.logger.warning(
                     "Row %s: skipping - product with slug %r not found",
                     index,
-                    handle_id,
+                    product_slug,
                 )
                 failed_matches += 1
                 continue
