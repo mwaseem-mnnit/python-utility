@@ -19,6 +19,8 @@ python3 -m wix_utility healthcheck
 python3 -m wix_utility dry-run
 python3 -m wix_utility parse-csv
 python3 -m wix_utility create-collections
+python3 -m wix_utility assign-collection-to-product
+python3 -m wix_utility collection-products-to-cms
 python3 -m wix_utility run-flow
 python3 -m wix_utility collection-sync
 python3 -m wix_utility product-sync
@@ -43,5 +45,6 @@ create/skip plan without creating anything.
 - `catalog/matching.py` compares product or collection-like objects to help avoid duplicates.
 - `services/collections.py` contains collection/category payload mapping.
 - `services/products.py` contains product payload mapping.
+- `services/cms.py` contains Wix Data bulk save helpers.
 - `services/media.py` contains image upload preparation placeholders.
 - `catalog/models.py` contains local draft models that can be filled from CSV or WhatsApp parsing outputs.

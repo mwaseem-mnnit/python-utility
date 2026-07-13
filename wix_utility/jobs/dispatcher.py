@@ -6,6 +6,7 @@ import sys
 
 from wix_utility.core.config import (
     JOB_ASSIGN_COLLECTION_TO_PRODUCT,
+    JOB_COLLECTION_PRODUCTS_TO_CMS,
     JOB_COLLECTION_SYNC,
     JOB_CREATE_COLLECTIONS,
     JOB_DRY_RUN,
@@ -17,6 +18,7 @@ from wix_utility.core.config import (
 )
 from wix_utility.jobs.base import WixJob
 from wix_utility.jobs.assign_collection_to_product import AssignCollectionToProductJob
+from wix_utility.jobs.collection_products_to_cms import CollectionProductsToCmsJob
 from wix_utility.jobs.create_collections import CreateCollectionsJob
 from wix_utility.jobs.dry_run import DryRunJob
 from wix_utility.jobs.flow_jobs import CollectionSyncJob, MediaUploadJob, ProductSyncJob
@@ -31,6 +33,7 @@ def job_registry() -> dict[str, type[WixJob]]:
         JOB_DRY_RUN: DryRunJob,
         JOB_CREATE_COLLECTIONS: CreateCollectionsJob,
         JOB_ASSIGN_COLLECTION_TO_PRODUCT: AssignCollectionToProductJob,
+        JOB_COLLECTION_PRODUCTS_TO_CMS: CollectionProductsToCmsJob,
         JOB_PARSE_CSV: ParseCsvJob,
         JOB_RUN_FLOW: RunFlowJob,
         JOB_COLLECTION_SYNC: CollectionSyncJob,

@@ -6,7 +6,7 @@ from typing import Any
 
 from wix_utility.catalog.models import CollectionDraft
 from wix_utility.clients.wix_api import WixApiClient
-from wix_utility.core.utils import _compute_next_offset
+from wix_utility.core.utils import compute_next_offset
 
 
 def collection_payload(draft: CollectionDraft) -> dict[str, Any]:
@@ -62,13 +62,18 @@ class CollectionService:
             page = self.query_collections_page(
                 limit=page_size,
                 offset=offset,
-                visible_only=visible_only
+                visible_only=visible_only,
             )
             page_items = _extract_collections(page)
             if len(page_items) == 0:
                 break
             collections.extend(page_items)
-            offset = _compute_next_offset(page)
+            next_offset = compute_next_offset(page)
+            if next_offset <= offset:
+                next_offset = offset + len(page_items)
+            if next_offset <= offset:
+                break
+            offset = next_offset
         return collections
 
 
@@ -83,24 +88,3 @@ def _extract_collections(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(value, list):
             return [item for item in value if isinstance(item, dict)]
     return []
-
-
-def _extract_next_cursor(payload: dict[str, Any]) -> str:
-    metadata_candidates = [
-        payload.get("metadata"),
-        payload.get("pagingMetadata"),
-        payload.get("data", {}).get("metadata") if isinstance(payload.get("data"), dict) else None,
-        payload.get("data", {}).get("pagingMetadata") if isinstance(payload.get("data"), dict) else None,
-    ]
-    for metadata in metadata_candidates:
-        if not isinstance(metadata, dict):
-            continue
-        cursors = metadata.get("cursors")
-        if isinstance(cursors, dict):
-            next_cursor = str(cursors.get("next") or "").strip()
-            if next_cursor:
-                return next_cursor
-        next_cursor = str(metadata.get("nextCursor") or "").strip()
-        if next_cursor:
-            return next_cursor
-    return ""

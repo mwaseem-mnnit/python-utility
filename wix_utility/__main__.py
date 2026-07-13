@@ -14,11 +14,13 @@ if __package__ in (None, ""):
     from wix_utility.core.config import (
         DEFAULT_JOB_NAME,
         ENV_DEFAULT_JOB,
+        JOB_ASSIGN_COLLECTION_TO_PRODUCT,
         JOB_COLLECTION_SYNC,
         JOB_CREATE_COLLECTIONS,
         JOB_DRY_RUN,
         JOB_HEALTHCHECK,
         JOB_MEDIA_UPLOAD,
+        JOB_COLLECTION_PRODUCTS_TO_CMS,
         JOB_PARSE_CSV,
         JOB_PRODUCT_SYNC,
         JOB_RUN_FLOW,
@@ -29,11 +31,13 @@ else:
     from wix_utility.core.config import (
         DEFAULT_JOB_NAME,
         ENV_DEFAULT_JOB,
+        JOB_ASSIGN_COLLECTION_TO_PRODUCT,
         JOB_COLLECTION_SYNC,
         JOB_CREATE_COLLECTIONS,
         JOB_DRY_RUN,
         JOB_HEALTHCHECK,
         JOB_MEDIA_UPLOAD,
+        JOB_COLLECTION_PRODUCTS_TO_CMS,
         JOB_PARSE_CSV,
         JOB_PRODUCT_SYNC,
         JOB_RUN_FLOW,
@@ -52,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Job to run "
             f"({JOB_HEALTHCHECK}, {JOB_DRY_RUN}, {JOB_PARSE_CSV}, {JOB_RUN_FLOW}, {JOB_CREATE_COLLECTIONS}, "
-            f"{JOB_COLLECTION_SYNC}, {JOB_PRODUCT_SYNC}, {JOB_MEDIA_UPLOAD}). "
+            f"{JOB_ASSIGN_COLLECTION_TO_PRODUCT}, {JOB_COLLECTION_PRODUCTS_TO_CMS}, {JOB_COLLECTION_SYNC}, "
+            f"{JOB_PRODUCT_SYNC}, {JOB_MEDIA_UPLOAD}). "
             f"If omitted, reads {ENV_DEFAULT_JOB} from wix_utility/.env "
             f"(default name: {DEFAULT_JOB_NAME})."
         ),
