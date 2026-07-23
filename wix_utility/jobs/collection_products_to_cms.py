@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,6 +61,7 @@ class CollectionProductsToCmsJob(WixJob):
                     product_service,
                     collection_id=collection_id,
                     page_size=max(1, config.product_page_size),
+                    result_limit=config.product_result_limit,
                 )
             except WixApiError as exc:
                 self.logger.error("Failed to query products for collection %s: %s", collection_id, exc)
@@ -102,7 +104,8 @@ class CollectionProductsToCmsJob(WixJob):
         for index, batch in enumerate(batches, start=1):
             try:
                 self.logger.info("Upserting batch %s/%s size=%s", index, len(batches), len(batch))
-                cms_service.bulk_upsert_cms(config.target_cms_table_id, batch)
+                response = cms_service.bulk_upsert_cms(config.target_cms_table_id, batch)
+                self.logger.info("Upserting batch response summary %s :- result %s", json.dumps(response['bulkActionMetadata']), len(response['results']))
             except WixApiError as exc:
                 failures += 1
                 self.logger.error("Failed batch %s/%s: %s", index, len(batches), exc)
@@ -121,6 +124,7 @@ class CollectionProductsToCmsJob(WixJob):
         *,
         collection_id: str,
         page_size: int,
+        result_limit: int
     ) -> list[dict[str, Any]]:
         products: list[dict[str, Any]] = []
         offset = 0
@@ -129,11 +133,15 @@ class CollectionProductsToCmsJob(WixJob):
                 limit=page_size,
                 offset=offset,
                 collection_ids=collection_id,
+                sort={"lastUpdated": "desc"}
             )
             page_items = _extract_products(page)
             if not page_items:
                 break
             products.extend(page_items)
+            if len(products) >= result_limit:
+                products = products[:result_limit]
+                break
             next_offset = compute_next_offset(page)
             if next_offset <= offset:
                 next_offset = offset + len(page_items)

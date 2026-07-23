@@ -127,6 +127,7 @@ class WixConfig:
     collection_title_column: str
     collection_page_size: int
     product_page_size: int
+    product_result_limit: int
     filter_collection_id_list: list[str]
     target_cms_table_id: str
     batch_size: int
@@ -169,17 +170,18 @@ def load_wix_config() -> WixConfig:
         collection_title_column=os.getenv("WIX_COLLECTION_TITLE_COLUMN", "").strip(),
         collection_page_size=_int_env("WIX_COLLECTION_PAGE_SIZE", 100),
         product_page_size=_int_env("WIX_PRODUCT_PAGE_SIZE", 100),
-        filter_collection_id_list=_csv_list_env("filterCollectionIdList", "WIX_FILTER_COLLECTION_ID_LIST"),
-        target_cms_table_id=_env_first("targetCMSTableId", "WIX_TARGET_CMS_TABLE_ID"),
-        batch_size=_int_env_first(100, "batchSize", "WIX_BATCH_SIZE"),
-        cms_record_version=_float_env_first(1.0, "cmsRecordVersion", "WIX_CMS_RECORD_VERSION"),
-        precision=_int_env_first(2, "precision", "WIX_PRECISION"),
-        min_rating=_float_env_first(1.0, "minRating", "WIX_MIN_RATING"),
-        max_rating=_float_env_first(5.0, "maxRating", "WIX_MAX_RATING"),
-        review_count_from=_int_env_first(0, "reviewCountFrom", "WIX_REVIEW_COUNT_FROM"),
-        review_count_to=_int_env_first(1000, "reviewCountTo", "WIX_REVIEW_COUNT_TO"),
-        media_width=_int_env_first(50, "mediaWidth", "WIX_MEDIA_WIDTH"),
-        media_height=_int_env_first(50, "mediaHeight", "WIX_MEDIA_HEIGHT"),
+        product_result_limit=_int_env("WIX_PRODUCT_RESULT_LIMIT", 1000),
+        filter_collection_id_list=_csv_list_env("WIX_FILTER_COLLECTION_ID_LIST"),
+        target_cms_table_id=_env_first("WIX_TARGET_CMS_TABLE_ID"),
+        batch_size=_int_env_first(100, "WIX_BATCH_SIZE"),
+        cms_record_version=_float_env_first(1.0, "WIX_CMS_RECORD_VERSION"),
+        precision=_int_env_first(2, "WIX_PRECISION"),
+        min_rating=_float_env_first(1.0, "WIX_MIN_RATING"),
+        max_rating=_float_env_first(5.0, "WIX_MAX_RATING"),
+        review_count_from=_int_env_first(0, "WIX_REVIEW_COUNT_FROM"),
+        review_count_to=_int_env_first(1000, "WIX_REVIEW_COUNT_TO"),
+        media_width=_int_env_first(50, "WIX_MEDIA_WIDTH"),
+        media_height=_int_env_first(50, "WIX_MEDIA_HEIGHT"),
         collection_query_visible_only=_bool_env("WIX_COLLECTION_QUERY_VISIBLE_ONLY", default=True),
         collection_create_enabled=_bool_env("WIX_COLLECTION_CREATE_ENABLED", default=False),
         collection_visible=_bool_env("WIX_COLLECTION_VISIBLE", default=False),

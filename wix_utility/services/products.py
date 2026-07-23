@@ -54,6 +54,7 @@ class ProductService:
         limit: int,
         offset: int = 0,
         collection_ids: str | list[str] | None = None,
+        sort: dict[str, str] | None = None
     ) -> dict[str, Any]:
         """Query one page of Wix Stores products."""
         paging: dict[str, Any] = {"limit": limit, "offset": offset}
@@ -61,7 +62,8 @@ class ProductService:
         filter_payload = _build_product_filter(collection_ids)
         if filter_payload is not None:
             query["filter"] = json.dumps(filter_payload)
-
+        if sort:
+            query["sort"] = json.dumps([{k: v} for k, v in sort.items()])
         return self.client.post(
             "/stores/v1/products/query",
             json_payload={"query": query},
@@ -81,6 +83,7 @@ class ProductService:
                 limit=page_size,
                 offset=offset,
                 collection_ids=collection_ids,
+                sort={"lastUpdated": "desc"}
             )
             page_items = _extract_products(page)
             if len(page_items) == 0:
